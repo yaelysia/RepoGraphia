@@ -1,3 +1,6 @@
+/** Bump when extraction semantics change; this participates in snapshot identity. */
+export const ANALYSIS_REVISION = 2;
+
 /** Stable schema; coordinates are 1-based, offsets are UTF-16, end is exclusive. */
 export interface Location {
   file: string; start: number; end: number; line: number; column: number;
@@ -27,6 +30,8 @@ export interface CodeGraph {
   schemaVersion: 1;
   project: {
     name: string; commit: string | null; dirty: boolean | null; snapshot: string;
+    /** Absent in older schema-v1 reports; do not assume current extraction rules. */
+    analysisRevision?: number;
     compilerVersion: string; config: string | null; createdAt: string;
   };
   files: { path: string; hash: string; lines: number; source?: string }[];

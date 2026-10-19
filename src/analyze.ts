@@ -2,7 +2,7 @@ import ts from 'typescript';
 import path from 'node:path';
 import fs from 'node:fs';
 import type { CodeGraph, CodeNode, Evidence, Relation, RelationKind, Status } from './model.js';
-import { CALL_KINDS } from './model.js';
+import { ANALYSIS_REVISION, CALL_KINDS } from './model.js';
 import { loadProject, locate, normalize, hash, gitState, isSource, inside, fileKey, isDependency } from './project.js';
 
 const executable = (n: ts.Node): n is ts.FunctionDeclaration | ts.FunctionExpression | ts.ArrowFunction |
@@ -10,15 +10,25 @@ const executable = (n: ts.Node): n is ts.FunctionDeclaration | ts.FunctionExpres
   ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n) || ts.isArrowFunction(n) ||
   ts.isMethodDeclaration(n) || ts.isConstructorDeclaration(n) || ts.isGetAccessor(n) || ts.isSetAccessor(n);
 const named = (n: ts.Node): n is ts.NamedDeclaration => 'name' in n;
+const transparent = (n: ts.Node): n is ts.ParenthesizedExpression | ts.AsExpression |
+  ts.NonNullExpression | ts.TypeAssertion | ts.SatisfiesExpression =>
+  ts.isParenthesizedExpression(n) || ts.isAsExpression(n) || ts.isNonNullExpression(n) ||
+  ts.isTypeAssertionExpression(n) || ts.isSatisfiesExpression(n);
 function unwrap(n: ts.Node): ts.Node {
-  while (ts.isParenthesizedExpression(n) || ts.isAsExpression(n) || ts.isNonNullExpression(n) || ts.isTypeAssertionExpression(n)) n = n.expression;
+  while (transparent(n)) n = n.expression;
   return n;
 }
+/** A computed method/accessor name is evaluated outside that method's body. */
+const inDefinitionContext = (node: ts.Node, child: ts.Node): boolean =>
+  executable(node) && ts.isComputedPropertyName(child);
 function label(n: ts.Node): string {
   if (named(n) && n.name) return n.name.getText();
   if (ts.isConstructorDeclaration(n)) return 'constructor';
   if (ts.isArrowFunction(n) || ts.isFunctionExpression(n)) {
-    if (ts.isVariableDeclaration(n.parent) || ts.isPropertyDeclaration(n.parent) || ts.isPropertyAssignment(n.parent)) return n.parent.name.getText();
+    let value: ts.Node = n;
+    while (value.parent && transparent(value.parent)) value = value.parent;
+    const parent = value.parent;
+    if (parent && (ts.isVariableDeclaration(parent) || ts.isPropertyDeclaration(parent) || ts.isPropertyAssignment(parent))) return parent.name.getText();
     const p = n.getSourceFile().getLineAndCharacterOfPosition(n.getStart());
     return `<callback:${p.line + 1}:${p.character + 1}>`;
   }
@@ -48,6 +58,7 @@ export function analyze(input: string, options: { project?: string; includeSourc
       location: locate(sf, p.root), snippet: sf.text.slice(0, 900), hasBody: true };
     nodes.push(rootNode); bodies.set(id, rootNode); ids.set(sf, id);
     const visit = (node: ts.Node, parent: string) => {
+      const enclosing = parent;
       let kind: CodeNode['kind'] | undefined;
       if (ts.isClassDeclaration(node) || ts.isClassExpression(node)) kind = 'class';
       else if (ts.isInterfaceDeclaration(node)) kind = 'interface';
@@ -60,7 +71,7 @@ export function analyze(input: string, options: { project?: string; includeSourc
           snippet: node.getText().slice(0, 1400), hasBody: executable(node) && !!node.body };
         nodes.push(item); bodies.set(id, item); ids.set(node, id); astById.set(id, node); parent = id;
       }
-      ts.forEachChild(node, child => visit(child, parent));
+      ts.forEachChild(node, child => visit(child, inDefinitionContext(node, child) ? enclosing : parent));
     };
     ts.forEachChild(sf, n => visit(n, id));
   }
@@ -146,6 +157,7 @@ export function analyze(input: string, options: { project?: string; includeSourc
   }
   for (const sf of p.sources) {
     const walk = (node: ts.Node, owner: string) => {
+      const enclosing = owner;
       if (ids.has(node)) owner = ids.get(node)!;
       let call: ts.CallExpression | ts.NewExpression | ts.TaggedTemplateExpression | undefined;
       let expr: ts.Expression | undefined, kind: RelationKind = 'call';
@@ -191,9 +203,13 @@ export function analyze(input: string, options: { project?: string; includeSourc
         moduleRelation(fileId(sf), node, node.moduleReference.expression, 'import', node.isTypeOnly);
       if (ts.isHeritageClause(node)) for (const item of node.types) {
         const r = resolve(item.expression);
+        const typeOnly = node.token === ts.SyntaxKind.ImplementsKeyword || ts.isInterfaceDeclaration(node.parent);
         add(owner, item, node.token === ts.SyntaxKind.ImplementsKeyword ? 'implements' : 'extends', r.targets,
-          r.targets.length ? 'bound' : r.status, 'heritage-declaration',
-          'Explicit declared inheritance/type relationship; not a call edge.', item.getText());
+          typeOnly && r.targets.length ? 'bound' : r.status,
+          typeOnly ? 'heritage-type-declaration' : 'heritage-value-binding',
+          typeOnly ? 'Explicit type relationship, not runtime dispatch or a call edge.'
+            : 'Superclass value expression. ' + r.why + ' This inheritance record is not a call edge.',
+          item.getText(), typeOnly);
       }
       if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
         const text = node.tagName.getText();
@@ -203,7 +219,7 @@ export function analyze(input: string, options: { project?: string; includeSourc
             'JSX component reference; framework rendering is not a direct function call.', text);
         }
       }
-      ts.forEachChild(node, child => walk(child, owner));
+      ts.forEachChild(node, child => walk(child, inDefinitionContext(node, child) ? enclosing : owner));
     };
     walk(sf, fileId(sf));
   }
@@ -217,13 +233,14 @@ export function analyze(input: string, options: { project?: string; includeSourc
   const indexed = new Set(p.sources.map(sf => fileKey(sf.fileName)));
   const files = p.sources.map(sf => ({ path: normalize(path.relative(p.root, sf.fileName)), hash: hashes.get(sf.fileName)!,
     lines: sf.getLineStarts().length, ...(options.includeSource ? { source: sf.text } : {}) })).sort((a, b) => a.path.localeCompare(b.path));
-  // Include every compiler-read input and effective configuration in snapshot identity.
+  // Rule changes must invalidate identity even when source/compiler inputs are identical.
   const configText = p.configPath ? fs.readFileSync(p.configPath, 'utf8') : '';
-  const snapshot = hash(JSON.stringify({ files: [...p.readHashes].sort(), options: p.options, configText, compiler: ts.version }));
+  const snapshot = hash(JSON.stringify({ analysisRevision: ANALYSIS_REVISION, files: [...p.readHashes].sort(),
+    options: p.options, configText, compiler: ts.version }));
   const counts: Record<Status, number> = { bound: 0, candidate: 0, unresolved: 0, external: 0 };
   for (const edge of relations) if (CALL_KINDS.has(edge.kind)) counts[edge.status]++;
   return { schemaVersion: 1, project: { name: path.basename(p.root), ...gitState(p.root), snapshot,
-      compilerVersion: ts.version, config: p.configPath ? normalize(path.relative(p.root, p.configPath)) : null, createdAt: new Date().toISOString() },
+      analysisRevision: ANALYSIS_REVISION, compilerVersion: ts.version, config: p.configPath ? normalize(path.relative(p.root, p.configPath)) : null, createdAt: new Date().toISOString() },
     files, nodes: nodes.sort((a, b) => a.id.localeCompare(b.id)), relations, diagnostics: p.diagnostics,
     coverage: { indexedFiles: files.length, inventorySourceFiles: p.found.files.filter(isSource).length,
       unindexed: p.found.files.filter(f => (isSource(f) || /\.(py|ps1|cs|cpp|c|go|rs|java)$/.test(f)) && !indexed.has(fileKey(f)))
