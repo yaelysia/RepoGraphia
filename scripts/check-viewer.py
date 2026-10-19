@@ -22,6 +22,10 @@ with sync_playwright() as p:
     else:
         page.goto(report.as_uri())
     page.wait_for_selector('.node-row')
+    embedded = page.locator('#graph-data').text_content()
+    data = json.loads(embedded)
+    revision = data['project'].get('analysisRevision', '未标注（旧报告）')
+    assert f'分析规则 {revision}' in page.locator('#revision').inner_text()
     assert page.locator('#map .node').count() > 0
     page.screenshot(path=args.output, full_page=True)
     page.locator('#symbols-tab').click()
@@ -45,7 +49,15 @@ with sync_playwright() as p:
     page.set_viewport_size({'width': 430, 'height': 900})
     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
     assert page.evaluate('globalThis.pwned') is None
+    # The current viewer must not assign its own analysis rules to older v1 data.
+    data['project'].pop('analysisRevision', None)
+    legacy_data = json.dumps(data, ensure_ascii=True).replace('<', '\\u003c')
+    original = report.read_text(encoding='utf-8')
+    assert embedded in original
+    page.set_content(original.replace(embedded, legacy_data, 1), wait_until='load')
+    assert '分析规则 未标注（旧报告）' in page.locator('#revision').inner_text()
+    assert page.evaluate('globalThis.pwned') is None
     browser.close()
     assert not errors, errors
     assert not [url for url in requests if not url.startswith('file:')], requests
-    print(json.dumps({'browserErrors': errors, 'networkRequests': 0, 'checks': 12}))
+    print(json.dumps({'browserErrors': errors, 'networkRequests': 0, 'checks': 14}))
