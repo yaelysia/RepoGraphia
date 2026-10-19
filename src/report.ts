@@ -1,0 +1,19 @@
+import fs from 'node:fs';
+import { createHash } from 'node:crypto';
+import type { CodeGraph } from './model.js';
+
+/** Prevent repository text from breaking out of a non-executable JSON script. */
+export function safeJson(value: unknown): string {
+  return JSON.stringify(value).replace(/[<>&\u2028\u2029]/g,
+    char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0'));
+}
+export function renderHtml(graph: CodeGraph): string {
+  const css = fs.readFileSync(new URL('../viewer/style.css', import.meta.url), 'utf8');
+  const script = fs.readFileSync(new URL('../viewer/app.js', import.meta.url), 'utf8');
+  const template = fs.readFileSync(new URL('../viewer/body.html', import.meta.url), 'utf8');
+  const digest = createHash('sha256').update(script).digest('base64');
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-${digest}'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<title>RepoGraphia · Code Explorer</title><style>${css}</style></head><body>${template}
+<script id="graph-data" type="application/json">${safeJson(graph)}</script><script>${script}</script></body></html>`;
+}
