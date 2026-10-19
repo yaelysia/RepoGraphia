@@ -1,0 +1,17 @@
+{
+  "name": "repographia",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Evidence-grounded codebase exploration for humans and AI agents",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "bin": { "repographia": "dist/cli.js" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "analyze": "node dist/cli.js analyze",
+    "verify:sample": "node scripts/verify-sample.mjs"
+  },
+  "dependencies": { "typescript": "5.9.3" },
+  "devDependencies": { "@types/node": "22.15.30" }
+}
