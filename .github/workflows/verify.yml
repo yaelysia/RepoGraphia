@@ -17,14 +17,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm install --ignore-scripts --no-audit --no-fund
+      - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm test
       - run: node --check viewer/app.js
-      - uses: actions/upload-artifact@v4
-        if: runner.os == 'Linux'
-        with:
-          name: dependency-lock
-          path: package-lock.json
   sample:
     runs-on: ubuntu-latest
     steps:
@@ -40,7 +35,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm install --ignore-scripts --no-audit --no-fund
+      - run: npm ci --ignore-scripts --no-audit --no-fund
         working-directory: tool
       - run: npm run build
         working-directory: tool

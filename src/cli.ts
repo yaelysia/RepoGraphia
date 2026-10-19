@@ -38,7 +38,7 @@ try {
     fs.mkdirSync(out, { recursive: true });
     for (const [name, text] of [['graph.json', JSON.stringify(graph, null, 2)], ['index.html', renderHtml(graph)]]) {
       const destination = path.join(out, name!);
-      if (fs.existsSync(destination) && fs.lstatSync(destination).isSymbolicLink()) throw new Error('Refusing symlink output: ' + destination);
+      if (fs.lstatSync(destination, { throwIfNoEntry: false })?.isSymbolicLink()) throw new Error('Refusing symlink output: ' + destination);
       fs.writeFileSync(destination, text!, 'utf8');
     }
     console.log(JSON.stringify({ report: path.join(out, 'index.html'), snapshot: graph.project.snapshot,

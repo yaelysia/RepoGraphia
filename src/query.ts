@@ -39,12 +39,15 @@ export function neighborhood(graph: CodeGraph, id: string, options: {
     }
     frontier = next;
   }
-  const omitted = all.filter(e => seen.has(e.from) && e.status !== 'bound' &&
-    !(options.includeCandidates && e.status === 'candidate'));
+  const omitted = all.filter(e => e.status !== 'bound' &&
+    !(options.includeCandidates && e.status === 'candidate') &&
+    (direction !== 'in' && seen.has(e.from) || direction !== 'out' && e.targets.some(t => seen.has(t))));
   const hasMore = admissible.some(e => direction !== 'in' && seen.has(e.from) && e.targets.some(t => !seen.has(t)) ||
     direction !== 'out' && !seen.has(e.from) && e.targets.some(t => seen.has(t)));
+  const selectedEdges = admissible.filter(e => edgeIds.has(e.id));
+  const outsideNodeIds = [...new Set(selectedEdges.flatMap(e => [e.from, ...e.targets]).filter(t => !seen.has(t)))];
   return { focus: id, nodes: graph.nodes.filter(n => seen.has(n.id)),
-    relations: admissible.filter(e => edgeIds.has(e.id)), omittedRelations: omitted,
-    boundary: { depth, limit, truncated, hasMore, includesCandidates: !!options.includeCandidates,
+    relations: selectedEdges, omittedRelations: omitted,
+    boundary: { depth, limit, truncated, hasMore, outsideNodeIds, includesCandidates: !!options.includeCandidates,
       explanation: 'Only selected static relation kinds are traversed. Empty results do not establish runtime absence.' } };
 }

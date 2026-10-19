@@ -3,7 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import type { CodeGraph, CodeNode, Evidence, Relation, RelationKind, Status } from './model.js';
 import { CALL_KINDS } from './model.js';
-import { loadProject, locate, normalize, hash, gitState, isSource, inside } from './project.js';
+import { loadProject, locate, normalize, hash, gitState, isSource, inside, fileKey, isDependency } from './project.js';
 
 const executable = (n: ts.Node): n is ts.FunctionDeclaration | ts.FunctionExpression | ts.ArrowFunction |
   ts.MethodDeclaration | ts.ConstructorDeclaration | ts.GetAccessorDeclaration | ts.SetAccessorDeclaration =>
@@ -121,7 +121,7 @@ export function analyze(input: string, options: { project?: string; includeSourc
     }
     const external = ds.length > 0 && ds.every(d => {
       const f = d.getSourceFile().fileName;
-      return !inside(p.root, f) || f.includes(`${path.sep}node_modules${path.sep}`);
+      return !inside(p.root, f) || isDependency(f);
     });
     if (external && !indirect) return { targets: [], status: 'external', rule: 'external-declaration',
       why: 'Declaration is outside indexed project source (dependency or standard library). Implementation not analyzed.' };
@@ -139,7 +139,7 @@ export function analyze(input: string, options: { project?: string; includeSourc
     const resolvedFile = boundFile?.fileName ?? ts.resolveModuleName(spec.text, node.getSourceFile().fileName, p.options, ts.sys).resolvedModule?.resolvedFileName;
     const target = resolvedFile ? ids.get(p.program.getSourceFile(resolvedFile)!) : undefined;
     const externalFile = resolvedFile ?? ambientFile;
-    const external = !!externalFile && (!inside(p.root, externalFile) || externalFile.includes(`${path.sep}node_modules${path.sep}`));
+    const external = !!externalFile && (!inside(p.root, externalFile) || isDependency(externalFile));
     add(owner, node, kind, target ? [target] : [], target ? 'bound' : external ? 'external' : 'unresolved',
       'module-resolution', target ? 'Resolved using the project compiler module settings. Import is not a function call.'
         : external ? 'Resolved dependency module outside indexed source.' : 'Module has no indexed source target; not assumed absent.', spec.text, typeOnly);
@@ -214,7 +214,7 @@ export function analyze(input: string, options: { project?: string; includeSourc
     ...(d.file ? { file: normalize(path.relative(p.root, d.file.fileName)),
       line: d.file.getLineAndCharacterOfPosition(d.start ?? 0).line + 1 } : {}),
   })));
-  const indexed = new Set(p.sources.map(sf => sf.fileName));
+  const indexed = new Set(p.sources.map(sf => fileKey(sf.fileName)));
   const files = p.sources.map(sf => ({ path: normalize(path.relative(p.root, sf.fileName)), hash: hashes.get(sf.fileName)!,
     lines: sf.getLineStarts().length, ...(options.includeSource ? { source: sf.text } : {}) })).sort((a, b) => a.path.localeCompare(b.path));
   // Include every compiler-read input and effective configuration in snapshot identity.
@@ -226,7 +226,7 @@ export function analyze(input: string, options: { project?: string; includeSourc
       compilerVersion: ts.version, config: p.configPath ? normalize(path.relative(p.root, p.configPath)) : null, createdAt: new Date().toISOString() },
     files, nodes: nodes.sort((a, b) => a.id.localeCompare(b.id)), relations, diagnostics: p.diagnostics,
     coverage: { indexedFiles: files.length, inventorySourceFiles: p.found.files.filter(isSource).length,
-      unindexed: p.found.files.filter(f => (isSource(f) || /\.(py|ps1|cs|cpp|c|go|rs|java)$/.test(f)) && !indexed.has(f))
+      unindexed: p.found.files.filter(f => (isSource(f) || /\.(py|ps1|cs|cpp|c|go|rs|java)$/.test(f)) && !indexed.has(fileKey(f)))
         .map(f => ({ path: normalize(path.relative(p.root, f)), reason: isSource(f) ? 'outside-selected-program' : 'unsupported-language' })),
       skippedSymlinks: p.found.symlinks, ignoredDirectories: p.found.ignored,
       syntaxCalls: Object.values(counts).reduce((a, b) => a + b, 0), callsByStatus: counts,

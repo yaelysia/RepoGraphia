@@ -8,6 +8,12 @@ import type { AnalysisDiagnostic, Location } from './model.js';
 const SKIP = new Set(['.git', 'node_modules', 'dist', 'out', 'build', 'coverage', '.next', '.repographia', 'release', 'vendor']);
 export const isSource = (file: string): boolean => /\.[cm]?[jt]sx?$/.test(file) && !/\.d\.[cm]?ts$/.test(file);
 export const normalize = (file: string): string => file.split(path.sep).join('/');
+/** TypeScript emits slash paths even on Windows; inventory uses native separators. */
+export function fileKey(file: string, flavor: 'win32' | 'posix' = process.platform === 'win32' ? 'win32' : 'posix'): string {
+  const api = path[flavor], key = api.resolve(file).split(api.sep).join('/');
+  return flavor === 'win32' ? key.toLowerCase() : key;
+}
+export const isDependency = (file: string): boolean => fileKey(file).includes('/node_modules/');
 export const hash = (value: string): string => createHash('sha256').update(value).digest('hex');
 export const inside = (root: string, file: string): boolean => {
   const rel = path.relative(root, file);
@@ -52,20 +58,20 @@ export function loadProject(input: string, configName?: string) {
     const parsed = ts.parseJsonConfigFileContent(raw.config, ts.sys, path.dirname(configPath), { noEmit: true }, configPath);
     const fatal = parsed.errors.filter(d => d.code !== 18003);
     if (fatal.length) throw new Error(fatal.map(d => ts.flattenDiagnosticMessageText(d.messageText, '\n')).join('\n'));
-    options = { ...defaults, ...parsed.options, noEmit: true, incremental: false };
+    options = { ...defaults, allowJs: false, ...parsed.options, noEmit: true, incremental: false };
     roots = parsed.fileNames.filter(f => inside(root, f));
     if (parsed.projectReferences?.length) diagnostics.push({ category: 'warning', code: 'project-references',
       message: 'Project references are not recursively analyzed. Select a leaf tsconfig with --project. Unindexed files are listed.' });
   }
   // Analyze only source files in the inventory; declarations may still supply type facts.
-  const permitted = new Set(found.files);
-  roots = roots.filter(f => permitted.has(f));
+  const permitted = new Set(found.files.map(f => fileKey(f)));
+  roots = roots.filter(f => permitted.has(fileKey(f)));
   const host = ts.createCompilerHost(options);
   const originalRead = host.readFile;
   const readHashes = new Map<string, string>();
   host.readFile = file => {
     // Dependencies/configuration may be read, never executed or emitted.
-    if (inside(root, file) && !file.includes(`${path.sep}node_modules${path.sep}`)) {
+    if (inside(root, file) && !isDependency(file)) {
       try { if (!inside(root, fs.realpathSync(file))) return undefined; } catch { return undefined; }
     }
     const text = originalRead(file);
@@ -73,7 +79,7 @@ export function loadProject(input: string, configName?: string) {
     return text;
   };
   const program = ts.createProgram({ rootNames: roots, options, host });
-  const sources = program.getSourceFiles().filter(sf => !sf.isDeclarationFile && permitted.has(sf.fileName) && isSource(sf.fileName));
+  const sources = program.getSourceFiles().filter(sf => !sf.isDeclarationFile && permitted.has(fileKey(sf.fileName)) && isSource(sf.fileName));
   return { root, configPath, found, options, program, sources, diagnostics, readHashes };
 }
 export function gitState(root: string): { commit: string | null; dirty: boolean | null } {
@@ -81,6 +87,8 @@ export function gitState(root: string): { commit: string | null; dirty: boolean 
     const run = (...args: string[]) => execFileSync('git', ['-C', root, ...args], {
       encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
     }).trim();
-    return { commit: run('rev-parse', 'HEAD'), dirty: run('status', '--porcelain', '--untracked-files=normal') !== '' };
+    // Do not run git status: repository-configured fsmonitor/clean helpers may execute.
+    // The commit is a baseline only; content hashes describe the analyzed working copy.
+    return { commit: run('rev-parse', '--verify', 'HEAD'), dirty: null };
   } catch { return { commit: null, dirty: null }; }
 }

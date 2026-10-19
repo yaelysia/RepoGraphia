@@ -28,7 +28,7 @@
       e.targets.some(t => (isFile ? fileNode(t) : t) === selected)));
   };
   $('project-name').textContent = graph.project.name;
-  $('revision').textContent = `${graph.project.commit?.slice(0, 10) || '非 Git 快照'}${graph.project.dirty ? ' · 工作区有改动' : ''} / TS ${graph.project.compilerVersion}`;
+  $('revision').textContent = `${graph.project.commit ? 'HEAD ' + graph.project.commit.slice(0, 10) : '非 Git 项目'} · 文件快照 / TS ${graph.project.compilerVersion}`;
   $('snapshot').textContent = 'SNAPSHOT ' + graph.project.snapshot.slice(0, 16);
   for (const [value, title] of [[graph.files.length,'索引文件'], [graph.nodes.filter(n => n.kind !== 'file').length,'代码实体'],
     [graph.coverage.syntaxCalls,'显式调用点'], [graph.coverage.callsByStatus.unresolved,'未解析调用']]) {

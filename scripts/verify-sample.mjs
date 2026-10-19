@@ -12,6 +12,7 @@ const state=()=>execFileSync('git',['-C',root,'status','--porcelain'],{encoding:
 assert.equal(execFileSync('git',['-C',root,'rev-parse','HEAD'],{encoding:'utf8'}).trim(),revision,'Use the pinned sample commit');
 const before=state(), started=performance.now();
 const graph=analyze(root,{includeSource:true});
+graph.project.name='Codex-Monitor';
 const byId=new Map(graph.nodes.map(n=>[n.id,n]));
 const checks=[];
 function binding(file,expression,targetFile,targetName) {
