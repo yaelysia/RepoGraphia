@@ -1,31 +1,33 @@
 # RepoGraphia 当前检查点
 
-接手先读本文件、AGENTS.md、docs/architecture.md，再检查此提交之后的分支和 PR #2。历史 CP3 记录仍在 docs/checkpoints/，不是本轮验证结果。
+接手先读本文件、`AGENTS.md`、`docs/architecture.md`，再检查分支在本检查点之后的提交和 PR #2 状态。历史文档仅记录当时情况，不代表最新验证状态。
 
-## CP5：规则 3、诊断查询和页面已实现；等待锁定版本 CI
+## CP6：规则 3 的跨平台、真实样本与产物复核完成
 
-- 分支 `fix/r1-evidence-checkpoints`，继续 PR #2；不写入 Codex-Monitor，不合并 master。
-- 本轮起点 `165532b7eb8dbb7872ef2e725a6f960df5256868`，CP4 接手记录 `c99e143092dbe0bddffc56880641bd694d829c59`。
-- 本 CP5 和实现/测试一起提交；精确实现 SHA 以包含本文件的 Git 提交及 PR 最新 HEAD 为准。
+记录日期：2026-10-20（UTC+08:00）。本轮只完成 CP5 的验证与交付，不引入新的分析规则。
 
-## 已完成
+- 工作分支：`fix/r1-evidence-checkpoints`；PR #2 保持审阅，未合并 master。
+- 已验证实现：`09ca6d38e1e68b8a831d69b5899676840b7dbc00`，分析规则版本 3。
+- 实现 Git 树：`f8f58425639e0858fdcc34e849809dbef752c918`。
+- Verify #12：`39282138269`，已完成且结论 success。CI 实际测试的合并提交为 `9398d0687cad83006400d68dce033c26ca875484`。
+- 本 CP6 是随后的纯文档提交，不将它冒充为 #12 的受测 HEAD。文档 HEAD 的后续 CI 以 PR #2 最新记录为准。
+- Codex-Monitor 始终只是独立只读样本，没有向其仓库提交任何修改，也未执行其应用或业务测试。
 
-1. 每个未解析显式调用保留结构化原因，仓库内范围外声明附坐标/内容哈希。
-2. 外部 var/属性声明正确标为声明边界；本地遮蔽/参数/可变别名不升级。
-3. 对象和类字段函数初始化、属性别名提供候选；不把 getter 返回的函数误当 getter 自身。
-4. 通用 CLI diagnostics 概览和按原因分页；HTML 共用诊断汇总，分类→分页记录→源码证据可点击。
-5. analysisRevision=3；旧格式缺少原因时未分类；比较工具检查同一源码/调用点集合，防止删点美化数量。
-6. CI 增加固定规则 2 分析器，与规则 3 共用同一个样本和已安装类型依赖，再输出 resolution-comparison.json。
+## 已核验结果
 
-## 实际验证（不是计划）
+| 验证 | 实际结果 |
+| --- | --- |
+| Linux / Node 22.23.3 / TypeScript 5.9.3 | 92 通过，0 失败，0 跳过 |
+| Windows / Node 22.23.3 / TypeScript 5.9.3 | 89 通过，0 失败，3 项既有符号链接权限测试跳过 |
+| Chromium / Playwright 1.55.0 | 24 项具名检查通过，file:// 导航，无页面异常、无外部请求 |
+| 固定 Codex-Monitor | 131 文件、2630 个非文件实体、12978 个显式调用点，0 编译诊断 |
+| 下载后完整性复核 | 131 个文件内容哈希、2761 个节点引用、15362 条关系端点/源码区间与 HTML 内嵌数据核验通过 |
 
-容器 Node 22.16.0 / TypeScript 5.8.3：原基线 57/57，通过本轮修改后的 92/92；0 失败，0 跳过。新边界/分类夹具最初 18 项中 15 项在旧实现上失败、3 项通过；补充 getter、诊断查询、对照检查后本轮合计新增 35 项测试。
+同一次 CI 在同一个样本及类型依赖目录中对照规则 2 和规则 3：12978 个调用点全部保留。未解析从 2755 变为 399，其中 2350 条仅重新识别为外部声明边界，6 条获得项目内候选目标；没有新增 bound 调用。这不是准确率提升 85% 的结论。6 条新增候选全部位于测试文件，已逐条检查其显式函数初始化依据。
 
-容器 Chromium / Playwright 使用显式 --set-content（宿主限制 file://）：24 项有名称的页面检查通过，0 页面异常、0 外部请求；含分页、源码跳转和旧格式兼容。使用独立的 32-call fixture，不是 Codex-Monitor 的新结果。
+完整版本、测试任务 ID、原因分布、产物哈希和复核限制见 [CP6 验证记录](checkpoints/CP6-validation.md)。CP5 历史记录的“等待 CI”已由本次核验解除。
 
-**锁定 TypeScript 5.9.3 的 Windows/Linux 与真实样本 CI 尚未核验本 CP5；不能把本地结果或 CP3 的 Verify #10 当成本轮最终通过。**
-
-## 接手命令
+## 接手与运行
 
 ```sh
 git fetch origin
@@ -36,10 +38,14 @@ npm run analyze -- ../Codex-Monitor --out ./reports/codex-monitor --include-sour
 node dist/cli.js query reports/codex-monitor/graph.json diagnostics
 ```
 
-现有未提交工作先保留，不可 reset/clean。CI 样本必须在独立副本固定 `490d822a9593d8d4b78a9188dd0daa0ae791eaf6`，不得执行样本应用/业务测试。容器当前无法解析 npm/GitHub，辅助编译器不是锁定版本；最终使用连接器读取 CI。
+本地没有跟踪分支时使用 `git switch --track origin/fix/r1-evidence-checkpoints`。先保留任何未提交工作，不得使用 reset/clean 覆盖。生成页面在 `reports/codex-monitor/index.html`；目标项目已有的依赖由其自己的环境管理，分析器不会自动安装或执行它们。
 
-## 下一步
+严格复现 CI 使用独立副本，样本固定到 `490d822a9593d8d4b78a9188dd0daa0ae791eaf6`，规则 2 工具固定到 `165532b7eb8dbb7872ef2e725a6f960df5256868`。按照 `.github/workflows/verify.yml` 和 `scripts/verify-sample.mjs` 准备类型信息；不要重置正在开发的目标工作区。
 
-检查包含 CP5 实现的 CI；修复真实失败后核对新旧计数、原因分布和截图，保存 CP6 精确受测 SHA/run/产物哈希。再更新 PR 和交付报告。未通过前不声称解析效果提升了多少。
+## 下一轮起点
 
-动态分析、AI 功能归纳、增量分析、多项目遍历和 IPC 自动桥接仍未开始，不属于遗漏工作。
+本轮实现及验证均已完成，没有未提交功能需要从临时环境恢复。接手先检查 PR #2 是否已有后续修改或合并，避免重复开发。
+
+剩余 399 条未解析中，224 条来自解构值、62 条来自函数参数。下一轮优先调查这两类的有限值来源追踪：先选小型正反例，再增加有界、可解释的静态规则；无法确定时仍明确停止，不按函数名或框架名称猜目标。数量大不等于都能安全解析。
+
+动态追踪、AI 功能归纳、增量分析、多项目遍历、自动 IPC/跨语言桥接仍未启动，不属于遗失的工作。长期恢复依靠远端 Git 提交与检查点；`checkpoint-source` CI 归档仅保留 30 天。
