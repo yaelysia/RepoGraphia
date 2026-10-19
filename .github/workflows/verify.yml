@@ -20,6 +20,15 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm test
       - run: node --check viewer/app.js
+      - name: Archive the exact tested source (no credentials or working files)
+        if: runner.os == 'Linux'
+        run: git archive --format=tar --output=../repographia-source.tar HEAD
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: checkpoint-source
+          path: ../repographia-source.tar
+          retention-days: 30
   sample:
     runs-on: ubuntu-latest
     steps:
