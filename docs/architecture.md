@@ -26,13 +26,25 @@ Member bindings, interface contracts and indirect values stay candidates. Functi
 
 Class `extends` follows the superclass VALUE binding: indirect/mutable expressions retain candidate or unresolved status. Interface `extends` and `implements` instead record explicit type relationships, marked `typeOnly=true`; a bound type relationship is not a runtime dispatch result.
 
+Explicit function initializers on object properties/class fields and finite property aliases may now provide declaration candidates. Property mutation/receiver flow remains unmodeled; never upgrade these values to bound merely because an initializer is present. A getter or an alias of its result is not the implementation of a subsequently invoked returned callable.
+
+Direct compiler symbols located entirely in dependencies/standard libraries are external declaration boundaries even when declared with var or property signatures. Local parameters, shadowed names and mutable local aliases cannot use that shortcut. The boundary denotes type/declaration provenance, not runtime target identity or immutability.
+
 An external declaration is an explicit boundary, not an analyzed implementation. Missing dependencies generate diagnostics. Callback-passing, JSX references and heritage do not imply call edges. IPC/event channels/HTTP/subprocess boundaries are not linked automatically in R1.
 
 ## Snapshot and freshness
 
-`schemaVersion=1` includes project metadata, files, nodes, relations, diagnostics and coverage. The snapshot incorporates compiler-read content hashes, effective options, selected configuration and compiler version, plus the extraction-rule revision. `ANALYSIS_REVISION=2` is emitted as `project.analysisRevision`; this additive schema-v1 field is absent in old reports, which must be shown as unversioned rather than assigned the current revision. Bump the constant whenever extraction semantics change so identical source inputs under different rules cannot share an analysis identity. Regenerate old graphs to use the new rules. Node and edge offsets can change across edits; consumers must not mix graphs from different snapshots.
+`schemaVersion=1` includes project metadata, files, nodes, relations, diagnostics and coverage. The snapshot incorporates compiler-read content hashes, effective options, selected configuration and compiler version, plus the extraction-rule revision. `ANALYSIS_REVISION=3` is emitted as `project.analysisRevision`; this additive schema-v1 field is absent in old reports, which must be shown as unversioned rather than assigned the current revision. Bump the constant whenever extraction semantics change so identical source inputs under different rules cannot share an analysis identity. Regenerate old graphs to use the new rules. Node and edge offsets can change across edits; consumers must not mix graphs from different snapshots.
 
 HEAD is only a version baseline. Worktree dirty detection is intentionally omitted (`dirty=null`) to avoid Git status helpers. This version reads a live working directory, not an atomic filesystem snapshot. For reproducible analysis use a fixed, idle checkout and the same dependencies. No filesystem watch or incremental invalidation exists yet.
+
+## Resolution diagnostics (revision 3)
+
+Every unresolved explicit call/new/tag record carries `evidence.reason`. The finite categories describe parameter/binding-pattern/mutable/property values, returned callables, out-of-scope declarations, import syntax, missing symbols, unmapped declarations or complex expressions. No probabilistic confidence or heuristic name matching is used. For a repository declaration outside the implementation index, optional `evidence.declaration` records the first applicable declaration's exact location and content hash; it is not a complete implementation candidate set.
+
+`src/diagnostics.ts` derives summaries and bounded reason pages from actual relations, not cached counts. The HTML embeds this same summary and navigates to original evidence by relation ID. Non-call module/callback/JSX/heritage records do not enter the explicit-call denominator. Counts include test paths; examples prefer non-test paths by an explicit filename rule, not inferred production importance. Missing or unfamiliar reason codes in old graphs stay unclassified. Paging retains total/offset/limit/nextOffset and source evidence.
+
+CI runs the pinned rule-2 analyzer against the same sample directory and dependency installation as the current analyzer. `compare-resolution.mjs` requires identical indexed source hashes, compiler version and explicit callsite coordinates before reporting status transitions. Snapshot-local node/edge IDs are not compared across revisions. This is a controlled regression comparison, not a measurement of precision or recall; external reclassification does not constitute a new project implementation target.
 
 ## Query budget
 

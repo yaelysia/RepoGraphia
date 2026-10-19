@@ -1,7 +1,7 @@
 import ts from 'typescript';
 import path from 'node:path';
 import fs from 'node:fs';
-import type { CodeGraph, CodeNode, Evidence, Relation, RelationKind, Status } from './model.js';
+import type { CodeGraph, CodeNode, Evidence, Relation, RelationKind, Status, UnresolvedReason } from './model.js';
 import { ANALYSIS_REVISION, CALL_KINDS } from './model.js';
 import { loadProject, locate, normalize, hash, gitState, isSource, inside, fileKey, isDependency } from './project.js';
 
@@ -48,9 +48,11 @@ export function analyze(input: string, options: { project?: string; includeSourc
   const add = (owner: string, node: ts.Node, kind: RelationKind, targets: string[], status: Status,
     rule: string, explanation: string, targetLabel: string, typeOnly?: boolean) => {
     const loc = locate(node, p.root);
-    relations.push({ id: 'edge:' + hash(`${owner}:${kind}:${loc.start}:${loc.end}:${relations.length}`).slice(0, 20),
+    const relation: Relation = { id: 'edge:' + hash(`${owner}:${kind}:${loc.start}:${loc.end}:${relations.length}`).slice(0, 20),
       from: owner, targets: [...new Set(targets)].sort(), kind, status, targetLabel,
-      ...(typeOnly === undefined ? {} : { typeOnly }), evidence: evidence(node, rule, explanation) });
+      ...(typeOnly === undefined ? {} : { typeOnly }), evidence: evidence(node, rule, explanation) };
+    relations.push(relation);
+    return relation;
   };
   for (const sf of p.sources) {
     const id = fileId(sf);
@@ -82,19 +84,24 @@ export function analyze(input: string, options: { project?: string; includeSourc
     }
     return symbol;
   }
+  function symbolDeclarations(node: ts.Node): readonly ts.Declaration[] {
+    node = unwrap(node);
+    return unalias(checker.getSymbolAtLocation(ts.isPropertyAccessExpression(node) ? node.name : node))?.declarations ?? [];
+  }
+  const outside = (d: ts.Declaration): boolean =>
+    !inside(p.root, d.getSourceFile().fileName) || isDependency(d.getSourceFile().fileName);
   function declarations(node: ts.Node, seen = new Set<ts.Node>()): ts.Declaration[] {
     node = unwrap(node);
     if (seen.has(node)) return [];
     seen.add(node);
     if (ids.has(node) && !ts.isSourceFile(node)) return [node as ts.Declaration];
-    const symbol = unalias(checker.getSymbolAtLocation(ts.isPropertyAccessExpression(node) ? node.name : node));
-    const ds = symbol?.declarations ?? [];
+    const ds = symbolDeclarations(node);
     const expanded: ts.Declaration[] = [];
     for (const d of ds) {
-      if (ts.isVariableDeclaration(d) && d.initializer) {
+      if ((ts.isVariableDeclaration(d) || ts.isPropertyAssignment(d) || ts.isPropertyDeclaration(d)) && d.initializer) {
         const next = unwrap(d.initializer);
         if (executable(next) || ts.isClassExpression(next)) expanded.push(next as ts.Declaration);
-        else if (ts.isIdentifier(next)) expanded.push(...declarations(next, seen));
+        else if (ts.isIdentifier(next) || ts.isPropertyAccessExpression(next) || ts.isElementAccessExpression(next)) expanded.push(...declarations(next, seen));
         else expanded.push(d);
       } else expanded.push(d);
     }
@@ -105,18 +112,53 @@ export function analyze(input: string, options: { project?: string; includeSourc
     node = unwrap(node);
     if (seen.has(node)) return true;
     seen.add(node);
-    const symbol = unalias(checker.getSymbolAtLocation(ts.isPropertyAccessExpression(node) ? node.name : node));
-    return (symbol?.declarations ?? []).some(d => {
-      if (ts.isParameter(d) || ts.isBindingElement(d) || ts.isPropertyDeclaration(d) || ts.isPropertySignature(d)) return true;
+    return symbolDeclarations(node).some(d => {
+      if (ts.isParameter(d) || ts.isBindingElement(d) || ts.isPropertyDeclaration(d) || ts.isPropertyAssignment(d) || ts.isPropertySignature(d)) return true;
       if (!ts.isVariableDeclaration(d)) return false;
       if (!(ts.isVariableDeclarationList(d.parent) && d.parent.flags & ts.NodeFlags.Const)) return true;
-      return !!d.initializer && ts.isIdentifier(unwrap(d.initializer)) && indirectBinding(d.initializer, seen);
+      const value = d.initializer && unwrap(d.initializer);
+      return !!value && (ts.isPropertyAccessExpression(value) || ts.isElementAccessExpression(value) ||
+        ts.isIdentifier(value) && indirectBinding(value, seen));
     });
   }
-  function resolve(expr: ts.Node, signature?: ts.Signature): { targets: string[]; status: Status; rule: string; why: string } {
+  /** Describe observed declaration syntax, not a guessed runtime cause or fix. */
+  function unresolvedReason(expr: ts.Node, ds: readonly ts.Declaration[], seen = new Set<ts.Node>()): UnresolvedReason {
     expr = unwrap(expr);
+    if (seen.has(expr)) return 'complex-expression';
+    seen.add(expr);
+    if (expr.kind === ts.SyntaxKind.ImportKeyword) return 'dynamic-import';
+    const direct = symbolDeclarations(expr);
+    if (direct.some(ts.isParameter)) return 'parameter-value';
+    if (direct.some(ts.isBindingElement)) return 'binding-pattern';
+    if (direct.some(ts.isGetAccessorDeclaration)) return 'returned-callable';
+    if (ds.some(d => d.getSourceFile().isDeclarationFile && !outside(d))) return 'out-of-scope-declaration';
+    for (const d of direct) if (ts.isVariableDeclaration(d)) {
+      if (!(ts.isVariableDeclarationList(d.parent) && d.parent.flags & ts.NodeFlags.Const)) return 'mutable-value';
+      if (d.initializer) {
+        const value = unwrap(d.initializer);
+        if (ts.isCallExpression(value) || ts.isAwaitExpression(value)) return 'returned-callable';
+        if (ts.isIdentifier(value) || ts.isPropertyAccessExpression(value) || ts.isElementAccessExpression(value))
+          return unresolvedReason(value, symbolDeclarations(value), seen);
+      }
+    }
+    if (direct.some(d => ts.isPropertyDeclaration(d) || ts.isPropertySignature(d) || ts.isPropertyAssignment(d))) return 'property-value';
+    if (ds.some(d => !outside(d) && !ids.has(d) && !p.sources.includes(d.getSourceFile()))) return 'out-of-scope-declaration';
+    if (ts.isCallExpression(expr) || ts.isAwaitExpression(expr)) return 'returned-callable';
+    if (!direct.length && !ds.length && !(ts.isIdentifier(expr) || ts.isPropertyAccessExpression(expr) || ts.isElementAccessExpression(expr))) return 'complex-expression';
+    return direct.length || ds.length ? 'unmapped-declaration' : 'missing-symbol';
+  }
+  function resolve(expr: ts.Node, signature?: ts.Signature): {
+    targets: string[]; status: Status; rule: string; why: string;
+    reason?: UnresolvedReason; declaration?: Evidence['declaration'];
+  } {
+    expr = unwrap(expr);
+    const direct = symbolDeclarations(expr);
     let ds = declarations(expr);
     if (!ds.length && signature?.declaration) ds = [signature.declaration];
+    // Reading a getter or an alias of it is not invoking the returned callable.
+    if ([...direct, ...ds].some(ts.isGetAccessorDeclaration)) return { targets: [], status: 'unresolved',
+      rule: 'accessor-return-value', reason: 'returned-callable',
+      why: 'Property access uses a getter; its returned callable is not resolved. This call is not a direct call of the getter body.' };
     const targets = ds.flatMap(d => ids.has(d) ? [ids.get(d)!] : []);
     const indirect = indirectBinding(expr) || !(ts.isIdentifier(expr) || ts.isPropertyAccessExpression(expr) ||
       ts.isElementAccessExpression(expr) || ts.isArrowFunction(expr) || ts.isFunctionExpression(expr));
@@ -127,18 +169,21 @@ export function analyze(input: string, options: { project?: string; includeSourc
       return { targets, status: uncertain ? 'candidate' : 'bound',
         rule: contract ? 'type-contract' : indirect ? 'indirect-reference' : virtual ? 'member-binding' : 'symbol-binding',
         why: contract ? 'Bound to a type contract, not a runtime implementation. Implementations are not enumerated.'
-          : uncertain ? 'Compiler declaration candidate only. Receiver/value flow, reassignment and dispatch are not exhaustively modeled.'
+          : uncertain ? 'Compiler declaration/initializer candidate only. Receiver/value flow, reassignment and dispatch are not exhaustively modeled.'
             : 'Compiler-resolved lexical declaration (aliases and overload bodies normalized). Does not prove execution or runtime exclusivity.' };
     }
-    const external = ds.length > 0 && ds.every(d => {
-      const f = d.getSourceFile().fileName;
-      return !inside(p.root, f) || isDependency(f);
-    });
-    if (external && !indirect) return { targets: [], status: 'external', rule: 'external-declaration',
-      why: 'Declaration is outside indexed project source (dependency or standard library). Implementation not analyzed.' };
-    return { targets: [], status: 'unresolved', rule: indirect ? 'unknown-callable-value' : 'no-project-target',
+    // An external var/property declaration is still a known TYPE boundary. Do not require
+    // it to be immutable. A LOCAL parameter or mutable alias cannot use this shortcut.
+    const directExternal = direct.length > 0 && direct.every(outside);
+    const external = ds.length > 0 && ds.every(outside);
+    if (directExternal || external && !indirect) return { targets: [], status: 'external', rule: 'external-declaration',
+      why: 'Compiler-bound declaration is outside indexed source (dependency or standard library). Implementation not analyzed; not runtime execution or target exclusivity.' };
+    const reason = unresolvedReason(expr, ds);
+    const boundary = reason === 'out-of-scope-declaration' ? ds.find(d => !outside(d)) : undefined;
+    return { targets: [], status: 'unresolved', rule: indirect ? 'unknown-callable-value' : 'no-project-target', reason,
+      ...(boundary ? { declaration: { location: locate(boundary, p.root), fileHash: hash(boundary.getSourceFile().text) } } : {}),
       why: indirect ? 'Callable value is supplied through a parameter/property/assignment. No whole-program value-flow proof.'
-        : 'No indexed implementation binding. Missing types, dynamic values or out-of-scope declarations may be involved.' };
+        : 'No indexed implementation binding. The diagnostic reason describes syntax/declaration evidence, not a proven runtime target.' };
   }
   function moduleRelation(owner: string, node: ts.Node, spec: ts.Expression, kind: RelationKind, typeOnly = false) {
     if (!ts.isStringLiteralLike(spec)) {
@@ -176,7 +221,9 @@ export function analyze(input: string, options: { project?: string; includeSourc
             return id;
           });
         }
-        add(owner, call, kind, result.targets, result.status, result.rule, result.why, expr.getText());
+        const relation = add(owner, call, kind, result.targets, result.status, result.rule, result.why, expr.getText());
+        if (result.reason) relation.evidence.reason = result.reason;
+        if (result.declaration) relation.evidence.declaration = result.declaration;
         if (ts.isCallExpression(call) && call.expression.kind === ts.SyntaxKind.ImportKeyword) {
           if (call.arguments[0]) moduleRelation(owner, call, call.arguments[0], 'import');
         }

@@ -42,6 +42,11 @@ jobs:
           ref: 490d822a9593d8d4b78a9188dd0daa0ae791eaf6
           path: sample
           persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 165532b7eb8dbb7872ef2e725a6f960df5256868
+          path: baseline-tool
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -54,12 +59,21 @@ jobs:
         working-directory: sample
       - run: node scripts/verify-sample.mjs ../sample ../reports/codex-monitor
         working-directory: tool
+      - name: Install locked baseline analyzer (same sample and type dependencies)
+        run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: baseline-tool
+      - run: npm run build
+        working-directory: baseline-tool
+      - run: node scripts/verify-sample.mjs ../sample ../reports/baseline
+        working-directory: baseline-tool
+      - run: node scripts/compare-resolution.mjs ../reports/baseline/graph.json ../reports/codex-monitor/graph.json ../reports/codex-monitor/resolution-comparison.json
+        working-directory: tool
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - run: python -m pip install playwright==1.55.0
       - run: python -m playwright install --with-deps chromium
-      - run: python tool/scripts/check-viewer.py reports/codex-monitor/index.html --output reports/codex-monitor/preview.png
+      - run: python tool/scripts/check-viewer.py reports/codex-monitor/index.html --legacy-report reports/codex-monitor/legacy-test.html --output reports/codex-monitor/preview.png
       - uses: actions/upload-artifact@v4
         with:
           name: codex-monitor-report

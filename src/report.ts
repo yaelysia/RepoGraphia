@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import type { CodeGraph } from './model.js';
+import { resolutionSummary } from './diagnostics.js';
 
 /** Prevent repository text from breaking out of a non-executable JSON script. */
 export function safeJson(value: unknown): string {
@@ -15,5 +16,6 @@ export function renderHtml(graph: CodeGraph): string {
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-${digest}'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
 <title>RepoGraphia · Code Explorer</title><style>${css}</style></head><body>${template}
-<script id="graph-data" type="application/json">${safeJson(graph)}</script><script>${script}</script></body></html>`;
+<script id="graph-data" type="application/json">${safeJson(graph)}</script>
+<script id="resolution-data" type="application/json">${safeJson(resolutionSummary(graph))}</script><script>${script}</script></body></html>`;
 }

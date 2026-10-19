@@ -141,5 +141,5 @@ test('corrected relations keep exact source ranges, file hashes and valid endpoi
   }
 });
 test('analysis metadata distinguishes changed extraction rules from older R1 snapshots', () => {
-  assert.equal(graph.project.analysisRevision, 2);
+  assert.equal(graph.project.analysisRevision, 3);
 });

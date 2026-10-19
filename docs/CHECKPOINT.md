@@ -1,30 +1,29 @@
 # RepoGraphia 当前检查点
 
-接手先读本文件、AGENTS.md、docs/architecture.md，再检查本记录之后的分支提交和 PR #2 状态。不要重建已完成的实现。
+接手先读本文件、AGENTS.md、docs/architecture.md，再检查此提交之后的分支和 PR #2。历史 CP3 记录仍在 docs/checkpoints/，不是本轮验证结果。
 
-## CP4：未解析调用分类与边界修正，已开始
+## CP5：规则 3、诊断查询和页面已实现；等待锁定版本 CI
 
-- 分支：`fix/r1-evidence-checkpoints`；继续既有 PR #2，不改 Codex-Monitor。
-- 本轮起点：`165532b7eb8dbb7872ef2e725a6f960df5256868`。PR #2 已核实仍开放、非草稿、尚未合并；master 为 `3987fb218bdcff4973329c0d13fcc1ea9a341b52`。
-- 前轮完成记录：`docs/checkpoints/CP3-validation.md`；完整旧接手入口保存在上述起点提交。Verify #10 验证过该起点，不是本轮后续改动的验证。
+- 分支 `fix/r1-evidence-checkpoints`，继续 PR #2；不写入 Codex-Monitor，不合并 master。
+- 本轮起点 `165532b7eb8dbb7872ef2e725a6f960df5256868`，CP4 接手记录 `c99e143092dbe0bddffc56880641bd694d829c59`。
+- 本 CP5 和实现/测试一起提交；精确实现 SHA 以包含本文件的 Git 提交及 PR 最新 HEAD 为准。
 
-## 已完成的本轮调查
+## 已完成
 
-从 Verify #9 的精确源码归档恢复工作副本，并校验 ZIP SHA-256：`e98a3db9842e9d76e27d6f75c2a3e130fa1d64f675ddf83ecdb8dc849a41dcb4`。已有样本 graph.json 使用 TypeScript 5.9.3 / analysisRevision 2。
+1. 每个未解析显式调用保留结构化原因，仓库内范围外声明附坐标/内容哈希。
+2. 外部 var/属性声明正确标为声明边界；本地遮蔽/参数/可变别名不升级。
+3. 对象和类字段函数初始化、属性别名提供候选；不把 getter 返回的函数误当 getter 自身。
+4. 通用 CLI diagnostics 概览和按原因分页；HTML 共用诊断汇总，分类→分页记录→源码证据可点击。
+5. analysisRevision=3；旧格式缺少原因时未分类；比较工具检查同一源码/调用点集合，防止删点美化数量。
+6. CI 增加固定规则 2 分析器，与规则 3 共用同一个样本和已安装类型依赖，再输出 resolution-comparison.json。
 
-程序统计固定 Codex-Monitor 的 2755 个未解析显式调用点：2663 条为 `unknown-callable-value`，92 条为 `no-project-target`。其中包含 Map/Set/Error 等可由标准库声明定位的边界，也包含参数、解构值、函数返回值以及仓库内 .d.mts 声明对应的未索引实现。不能把这些类别混成“模型不理解”。这些是旧产物的计数，不是新规则解析结果。
+## 实际验证（不是计划）
 
-## 本轮实施顺序
+容器 Node 22.16.0 / TypeScript 5.8.3：原基线 57/57，通过本轮修改后的 92/92；0 失败，0 跳过。新边界/分类夹具最初 18 项中 15 项在旧实现上失败、3 项通过；补充 getter、诊断查询、对照检查后本轮合计新增 35 项测试。
 
-1. 建立结构化未解析原因及有界诊断查询；旧图缺少原因时明确显示未分类，不反推旧证据。
-2. 正反例验证外部声明边界：直接绑定外部声明不误当未知；本地同名遮蔽、参数、可变别名不能被升级。
-3. 对对象/类字段显式函数初始化提供候选声明，不推断完整运行时值流；未能证实的类别继续保留。
-4. 将分类和可点击源码示例展示在离线页面，复用程序诊断逻辑。
-5. 锁定版本 Windows/Linux CI、固定样本、浏览器检查全部完成后保存 CP5/CP6 和交付产物。
+容器 Chromium / Playwright 使用显式 --set-content（宿主限制 file://）：24 项有名称的页面检查通过，0 页面异常、0 外部请求；含分页、源码跳转和旧格式兼容。使用独立的 32-call fixture，不是 Codex-Monitor 的新结果。
 
-## 环境和验证边界
-
-当前容器实际测试 DNS：GitHub/npm 域名不能解析。现有 Node 为 22.16.0，预装 TypeScript 为 5.8.3；使用它只能辅助验证，最终以 npm ci 锁定 5.9.3 的 CI 为准。此 CP4 提交只更新接手记录，尚无本轮新增应用代码或测试结果。
+**锁定 TypeScript 5.9.3 的 Windows/Linux 与真实样本 CI 尚未核验本 CP5；不能把本地结果或 CP3 的 Verify #10 当成本轮最终通过。**
 
 ## 接手命令
 
@@ -33,8 +32,14 @@ git fetch origin
 git switch fix/r1-evidence-checkpoints
 npm ci --ignore-scripts
 npm test
+npm run analyze -- ../Codex-Monitor --out ./reports/codex-monitor --include-source
+node dist/cli.js query reports/codex-monitor/graph.json diagnostics
 ```
 
-有未提交工作时先保留，不得 reset/clean。严格样本复现使用独立副本，固定到 `490d822a9593d8d4b78a9188dd0daa0ae791eaf6`，按 scripts/verify-sample.mjs 和 CI 配置执行；不得运行样本应用或业务测试。
+现有未提交工作先保留，不可 reset/clean。CI 样本必须在独立副本固定 `490d822a9593d8d4b78a9188dd0daa0ae791eaf6`，不得执行样本应用/业务测试。容器当前无法解析 npm/GitHub，辅助编译器不是锁定版本；最终使用连接器读取 CI。
 
-动态分析、AI 功能图、增量分析、多 tsconfig 自动遍历和自动 IPC 桥接仍未启动。当前工作不扩大到这些方向。所有实际修复须配正反例并记录证据边界，不能把统计数量改进当成准确率。
+## 下一步
+
+检查包含 CP5 实现的 CI；修复真实失败后核对新旧计数、原因分布和截图，保存 CP6 精确受测 SHA/run/产物哈希。再更新 PR 和交付报告。未通过前不声称解析效果提升了多少。
+
+动态分析、AI 功能归纳、增量分析、多项目遍历和 IPC 自动桥接仍未开始，不属于遗漏工作。

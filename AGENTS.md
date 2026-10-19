@@ -22,6 +22,8 @@ A real sample is pinned in scripts/verify-sample.mjs. Use a separate checkout at
 ## Implementation
 Reuse TypeScript compiler APIs; avoid duplicating a compiler or introducing graph databases and frameworks without a demonstrated need. Keep core analysis reusable separately from HTML. Source-derived strings must never enter executable HTML; no network resources or arbitrary commands in the viewer. Outputs must stay outside the analyzed source tree. Do not run git status in the analyzer because configured helper programs may execute.
 
+Keep reason codes tied to compiler/declaration evidence, never guessed runtime causes. Lowering unresolved counts must distinguish external-boundary reclassification from project-target candidates; use the same-input baseline comparison and never discard callsites to improve counts.
+
 Bump `ANALYSIS_REVISION` in src/model.ts when extraction semantics change; it participates in snapshot identity. Old reports without a rule revision must remain explicitly unversioned.
 
 When changing schema or unsupported cases, update README and docs/architecture.md. Report actual test results and platform skips, not planned validation.

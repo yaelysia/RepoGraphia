@@ -2,6 +2,8 @@
   'use strict';
   const graph = JSON.parse(document.getElementById('graph-data').textContent);
   const $ = id => document.getElementById(id);
+  const resolution = $('resolution-data') ? JSON.parse($('resolution-data').textContent) : null;
+  const reasonOf = e => resolution?.groups.some(g => g.reason === e.evidence.reason) ? e.evidence.reason : 'unclassified';
   const names = { bound: '静态绑定', candidate: '候选绑定', unresolved: '未解析', external: '外部边界' };
   const kinds = { call: '调用', construct: '构造', tag: '模板调用', import: '导入', reexport: '再导出',
     extends: '继承', implements: '实现声明', callback: '回调传入（非调用）', jsx: 'JSX 引用（非调用）' };
@@ -51,6 +53,17 @@
     const search = $('search').value.trim().toLowerCase();
     if (tab === 'gaps') {
       $('list-count').textContent = ''; $('more').hidden = true;
+      if (resolution) {
+        const box = make('div', null, 'gap');
+        box.append(make('strong', `未解析原因 · ${resolution.counts.unresolved} 个调用点`),
+          make('p', '统计覆盖整个选定程序，含测试路径；不是错误数或准确率。点击分类查看完整分页证据。'));
+        for (const group of resolution.groups) {
+          const entry = button(`${group.title} · ${group.count}`, () => showReason(group.reason), 'detail-link reason-group');
+          entry.dataset.reason = group.reason; box.append(entry);
+        }
+        if (!resolution.groups.length) box.append(make('p', '当前快照没有未解析的显式调用记录，不代表运行时关系完整。'));
+        list.append(box);
+      }
       for (const text of graph.coverage.limitations) { const box = make('div', null, 'gap'); box.append(make('strong','范围限制'), make('p',text)); list.append(box); }
       for (const row of graph.coverage.unindexed.filter(x => x.path.toLowerCase().includes(search))) {
         const box = make('div', null, 'gap'); box.append(make('strong', row.path), make('p', row.reason)); list.append(box);
@@ -163,6 +176,27 @@
     }
     detail.append(make('h4','定位信息'),make('p',n.id,'meta'),make('p','文件 SHA-256: '+files.get(n.location.file)?.hash,'meta'));
   }
+  function showReason(reason, offset = 0) {
+    const group = resolution.groups.find(g => g.reason === reason);
+    if (!group) return;
+    const rows = graph.relations.filter(e => ['call','construct','tag'].includes(e.kind) &&
+      e.status === 'unresolved' && reasonOf(e) === reason).sort((a,b) =>
+      Number(testPath(a.evidence.location.file)) - Number(testPath(b.evidence.location.file)) ||
+      a.evidence.location.file.localeCompare(b.evidence.location.file) || a.evidence.location.start - b.evidence.location.start);
+    const detail = $('detail'); detail.replaceChildren();
+    detail.append(make('span', 'RESOLUTION DIAGNOSTICS', 'eyebrow'), make('h3', group.title),
+      make('p', group.explanation), make('p', `${group.count} 条；其中 ${group.testPathCount} 条位于测试路径。`, 'meta'),
+      make('p', `显示 ${rows.length ? offset + 1 : 0}–${Math.min(offset+25,rows.length)} / ${rows.length}`, 'diagnostic-range'));
+    for (const edge of rows.slice(offset, offset + 25)) {
+      const item = button(`${edge.targetLabel} · ${loc(edge.evidence.location)}`, () => {
+        if (testPath(edge.evidence.location.file)) $('show-tests').checked = true;
+        select(edge.from); showEdge(edge);
+      }, 'detail-link diagnostic-example');
+      item.dataset.relation = edge.id; detail.append(item);
+    }
+    if (offset > 0) detail.append(button('上一页', () => showReason(reason, Math.max(0,offset-25)), 'detail-link diagnostic-prev'));
+    if (offset+25 < rows.length) detail.append(button('下一页', () => showReason(reason, offset+25), 'detail-link diagnostic-next'));
+  }
   function showEdge(edge) {
     const detail = $('detail'); detail.replaceChildren();
     detail.append(make('span',names[edge.status],'badge '+edge.status),make('h3',kinds[edge.kind]),
@@ -170,6 +204,15 @@
     detail.append(make('div',edge.kind==='callback' ? '这里只证明函数作为参数传入，不证明发生了调用。' :
       edge.kind==='jsx' ? '这里只证明 JSX 组件被引用，不代表普通函数直接调用。' :
       '这是一条静态关系记录，不证明实际执行、运行顺序或完整的运行时目标集合。','callout'));
+    if (edge.status === 'unresolved' && resolution) {
+      const group = resolution.groups.find(g => g.reason === reasonOf(edge));
+      if (group) detail.append(make('h4', '未解析分类'), make('p', group.title), make('p', group.explanation));
+    }
+    if (edge.evidence.declaration) {
+      detail.append(make('h4', '已找到的声明（实现未索引）'),
+        make('p', loc(edge.evidence.declaration.location), 'meta'),
+        make('p', '声明文件 SHA-256: ' + edge.evidence.declaration.fileHash, 'meta'));
+    }
     detail.append(make('h4','调用方 / 所属实体'),button(nodes.get(edge.from)?.name || edge.from,() => select(edge.from),'detail-link'));
     detail.append(make('h4','绑定目标 / 候选声明'));
     for (const target of edge.targets) detail.append(button(nodes.get(target)?.name || target,() => select(target),'detail-link'));
