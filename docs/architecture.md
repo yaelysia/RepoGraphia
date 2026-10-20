@@ -96,3 +96,9 @@ Primary interface references:
 - TypeScript Compiler API: https://github.com/microsoft/TypeScript/wiki/Using-the-Compiler-API
 - Project references: https://www.typescriptlang.org/docs/handbook/project-references.html
 - allowJs: https://www.typescriptlang.org/tsconfig/allowJs.html
+
+## Feature/code annotations (schema 1, separate from analysis)
+
+The optional FeatureMap sidecar is a semantic claim layer, not inferred static truth. `src/feature-map.ts` provides the shared pure validator, assessment, reverse lookup and revision-checked edits. The code graph and extraction revision remain unchanged. Annotation review decisions and reference freshness are orthogonal: acceptance never upgrades a candidate or closes a runtime boundary. A changed semantic description resets earlier accepted mappings to proposals.
+
+This first version uses conservative whole-snapshot invalidation plus explicit anchor checks, not incremental reattachment. No same-name fallback or inherited membership of callees/child functions. Example labels are agent-authored proposals and not authenticated human approval. Browser edits live only in memory until explicitly exported; the view does not write to the repository or mutate its embedded code graph. See `docs/feature-mapping.md` for the data/CLI/history and budget contract. Semantic validation and graph-data authenticity are not claimed by passing reference checks.
