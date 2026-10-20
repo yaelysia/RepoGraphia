@@ -1,201 +1,230 @@
 # RepoGraphia
 
-**以代码证据为基础的项目可视化与探索工具。**
+**把代码仓库变成可探索、可审阅的项目地图。**
 
-先用程序化静态分析建立可追溯的代码关系，再逐步扩展到功能地图和人与 Agent 的开发协作。第一轮交付的是一个独立的命令行分析器和离线 HTML 审阅页面，不是 Codex-Monitor 的插件，也不要求接入任何模型。
+RepoGraphia 是独立的本地工具：先用 TypeScript 编译器提取代码结构和关系，生成离线 HTML；再由你使用的 Coding Agent 按 Skill 阅读证据、提出功能与代码的关联。每条关系都能追溯源码，候选、未知和分析范围不会被隐藏。
 
-开发接手从 [当前检查点](docs/CHECKPOINT.md) 开始：已完成阶段、验证版本、剩余工作和复现命令都记录在仓库中，不依赖聊天记录。
+**日常使用只需 `master`，不需要切开发分支。** 当前是源码安装版，未发布 npm 包或桌面安装包；不要使用 `npm install -g repographia` 安装同名第三方包。
 
-## 现在可以做什么
+## 你可以做什么
 
-输入一个本地 TypeScript/JavaScript 项目，输出 `graph.json` 和一个可以直接打开的 `index.html`。
+| 目标 | 使用方式 |
+| --- | --- |
+| 看懂项目结构 | 目录地图 → 文件 → 函数/类 → 源码与关系证据 |
+| 查调用关系 | 搜索实体、查看调用方/被调用方、展开候选值来源和未解析原因 |
+| 按功能理解代码 | 让现有 Agent 使用随附 Skill，提出有源码依据的功能映射 |
+| 审阅和纠正 | 在页面查看、修改、接受或拒绝映射，导出标注 JSON |
+| 代码变化后维护标注 | 对照新旧代码图，明确选择迁移、替换或暂缓 |
 
-- **源码索引**：文件、函数、类、接口、方法、显式构造函数、匿名回调及它们的包含关系。
-- **语义绑定**：使用 TypeScript Compiler API，处理跨文件导入、再导出、别名、词法遮蔽和重载实现。调用、继承、类型导入、JSX 引用、回调传入分别记录。
-- **证据审阅**：每条关系附源码坐标、解析规则、原始片段和文件 SHA-256；未知目标不强行连线。
-- **项目地图**：默认从目录整体结构开始，逐层进入目录、文件、函数和源码；有向聚合连接保留关系类型、候选状态及原始证据。
-- **局部探索**：文件/符号导航、搜索、一跳关系图、状态筛选、节点/连线审阅、父子实体跳转、测试路径开关和缩放。
-- **程序查询**：搜索、调用方/被调用方查询、限定深度的子图，明确返回候选边、未知边和截断边界。
+只看代码图**不需要 AI、API Key 或启动服务**。生成功能提案需要另一个能执行本地命令、读取文件的 Agent；RepoGraphia 不内置模型，也不会自动消耗模型额度。
 
-这是可运行的 **静态代码探索与项目地图版本**。当前没有功能语义归纳、增量监控、跨语言完整分析、动态追踪或 Agent 任务调度。
+## 1. 安装
 
-## 安装与运行
-
-需要 Node.js 22 或更高版本。分析器的 TypeScript 版本锁定为 5.9.3；首次安装需要下载依赖，分析和报告浏览不需要联网。
+准备 **Git、Node.js 22 或更高版本（含 npm）**。Windows PowerShell、macOS 或 Linux 终端均可执行：
 
 ```sh
-git clone https://github.com/yaelysia/RepoGraphia.git
+git clone --branch master https://github.com/yaelysia/RepoGraphia.git
 cd RepoGraphia
 npm ci --ignore-scripts
 npm run build
+node dist/cli.js --help
 ```
 
-假设 Codex-Monitor 和 RepoGraphia 位于同一父目录：
+首次安装需要联网下载锁定依赖。`npm run build` 生成 `dist/`，后续分析和 HTML 浏览都可以离线进行。安装时不要省略开发依赖，否则构建可能缺少 Node 类型声明；设置过生产模式时用 `npm ci --ignore-scripts --include=dev`。
+
+Windows 遇到“无法加载 npm.ps1”时，可以在同一终端把命令中的 `npm` 换为 `npm.cmd`，无需为本工具放宽全局执行策略。
+
+## 2. 生成第一份代码图
+
+假设两个仓库在同一个父目录下：
+
+```text
+work/
+├── RepoGraphia/
+└── Codex-Monitor/
+```
+
+在 **RepoGraphia 目录**执行：
 
 ```sh
-npm run analyze -- ../Codex-Monitor --out ./reports/codex-monitor --include-source
+npm run analyze -- "../Codex-Monitor" --out "./reports/codex-monitor-r1" --include-source
 ```
 
-完成后在浏览器中打开 `reports/codex-monitor/index.html`，不需要启动服务器。上面的命令不会修改 Codex-Monitor，也不会运行它的启动脚本或测试。`--out` 必须在**被分析项目之外**。
+成功后，直接用浏览器打开：
 
-自定义配置或分析其他项目：
+```text
+RepoGraphia/reports/codex-monitor-r1/index.html
+```
+
+Windows PowerShell 也可运行：
+
+```powershell
+Start-Process "./reports/codex-monitor-r1/index.html"
+```
+
+分析其他项目，只需替换输入路径和输出目录：
 
 ```sh
-node dist/cli.js analyze /path/to/project --out /path/to/report
-node dist/cli.js analyze /path/to/project --project packages/app/tsconfig.json --out /path/to/report
+node dist/cli.js analyze "D:/projects/my-app" --out "./reports/my-app-r1" --include-source
 ```
 
-Windows 路径可以使用 `D:/projects/example`，有空格时加引号。
+**`--out` 必须是尚不存在的新目录，并且位于被分析项目之外。不要预先创建最后一级目录。** 再次分析时用 `my-app-r2` 等新名称，避免覆盖旧图、旧报告或通过硬链接意外改写源码；旧图也可能是后续迁移标注所需的依据。
 
-优先使用被分析项目已有的 `tsconfig.json`，没有配置时使用默认 TS/JS 文件扫描。需要类型信息的项目应先在其自己的环境中安装依赖；RepoGraphia **不会自动安装或执行目标项目的依赖**。缺失依赖时保留编译诊断和未解析调用，不把解析降级隐藏起来。多项目引用暂不递归展开，请用 `--project` 指向叶项目。
+每份报告包含：
 
-## 如何理解四种状态
+| 文件 | 用途 |
+| --- | --- |
+| `index.html` | 可直接打开的离线交互页面 |
+| `graph.json` | 同一快照的完整结构数据，供 CLI、Agent 和迁移使用 |
 
-| 状态 | 含义 | 不能推出的结论 |
-| --- | --- | --- |
-| `bound` 静态绑定 | 编译器解析到对应的词法声明或显式结构关系 | 不证明代码实际执行或运行时目标唯一 |
-| `candidate` 候选绑定 | 类型契约、成员声明或间接可调用值的候选依据 | 不是穷举了所有运行时实现 |
-| `unresolved` 未解析 | 调用点存在，但未得到可导航的项目内实现绑定 | 不代表不存在调用关系 |
-| `external` 外部边界 | 定位到索引范围之外的依赖或标准库声明 | 不代表已经分析了依赖实现 |
+`--include-source` 会嵌入完整的已索引源码，便于 Agent 查证；省略时仍可浏览代码图，但只有源码节选，Agent 提案校验可能因缺少完整源码而拒绝。**分享带源码的报告，相当于分享其中的代码。**
 
-例如 `handler.execute()` 可能只绑定到接口中的 `execute` 声明；不会为了补齐图而擅自选择某个实现类。`register(callback)` 会记录“回调作为参数传入”，不会把它替换成“register 已调用 callback”。JSX 也单独标记为组件引用。
+### 项目配置与依赖
 
-静态图不是程序运行轨迹，也不是完整的调用图证明。结构化规则解释是程序生成的，不依赖模型编造理由。
-
-## R1 静态准确性补强（已完成）
-
-R1 收尾新增 15 项正反例回归，修复三个具体问题：可变父类不再从候选关系被升级为确定继承；计算属性名中的调用不再计入方法体调用链；`satisfies` 包装后的函数/别名保留可解析的值关系，同时不抹掉可变值的不确定性。接口继承与实现声明明确标记为仅类型关系。
-
-从规则版本 2 开始，报告元数据及页面显示 `analysisRevision`（当前为 4）。规则版本参与 snapshot 计算，避免相同源码在不同分析规则下被当成同一结果。旧版 schema-v1 报告缺少此字段时显示“未标注（旧报告）”，需要重新分析才能使用新规则；这不代表节点 ID 可以跨快照复用。
-
-## 解析诊断与边界修正（分析规则 3）
-
-“未解析”现在附带程序生成的原因：参数传入、解构值、可变变量/别名、未知属性、调用或 getter 返回值、已找到范围外声明、模块加载语法、无符号及暂未映射的声明。分类描述的是**已有证据**，不是自动判定程序出错或承诺某种修复一定有效。
-
-- 直接绑定到标准库或依赖的变量/属性声明，标为 `external`。本地同名参数、可变别名不享用这项规则。**外部声明不等于实际执行过的外部实现。**
-- 对象/类字段显式初始化的函数体以及属性别名，保留为 `candidate`，不把初始化值当作后续所有调用点的确定目标。getter 返回函数时，不将 getter 自身误连成那个函数的实现。
-- 仓库内 `.d.ts/.d.mts` 等声明存在而实现未索引时，附声明坐标和文件哈希；不按文件名把声明猜接到 `.js/.mjs`。
-- HTML 的“分析边界”顶部提供原因分组。点击分类查看每页 25 条记录，再点击记录定位所属实体与源码证据。分类统计覆盖整个选定程序（含测试），不会随文件导航的隐藏测试开关改变分母。
+优先使用目标仓库根目录的 `tsconfig.json`；没有配置时扫描 TS/JS 文件。指定子项目：
 
 ```sh
-node dist/cli.js query reports/codex-monitor/graph.json diagnostics
-node dist/cli.js query reports/codex-monitor/graph.json diagnostics parameter-value --limit 25 --offset 0
+node dist/cli.js analyze "../my-monorepo" --project "packages/app/tsconfig.json" --out "./reports/app-r1" --include-source
 ```
 
-诊断概览复用 `src/diagnostics.ts`，示例每组最多 3 条；完整分类查询返回 `total`、原始关系证据和 `boundary.nextOffset`。老报告没有结构化原因时列为 `unclassified`，不从旧解释或名称反推新结论。规则 3 仍是可加字段的 schema v1，需要重新分析才能获得新结果。
+目标项目的类型依赖应在它自己的开发环境中准备好。RepoGraphia 不替目标执行安装、构建、测试或启动命令；缺少类型时会保留诊断和未解析信息。多 `tsconfig` 的项目目前需要分别分析，不能把一个叶项目的图当作整个 Monorepo 已覆盖。
 
-规则 3 阶段增加 35 项回归。当时 CI 在**同一个固定样本及类型依赖目录**中运行当前工具和固定的规则 2 工具，检查源码哈希、调用点坐标集合均不变，再生成 `resolution-comparison.json`。把未知改为外部边界，与新增候选实现分开统计；不能通过删除调用点美化解析数量。具体受测版本和结果见检查点。
+## 3. 浏览和审阅
 
-## 有限值来源追踪（分析规则 4）
+打开页面先看**项目地图**。选择目录后继续进入文件，点函数或关系记录查看源码、解析规则、哈希和候选来源。局部图及长列表有显示上限，界面会注明截断并提供继续探索入口。
 
-对原本因为解构或参数而未解析的显式调用，补充有界、程序化的声明来源追踪：常量对象/数组字面量、嵌套解构、重命名、简写属性、跨文件别名，以及已索引直接调用/显式构造中的实参。可恢复的目标**一律保持 `candidate`**，不升级为 `bound`。
+**分析边界**列出未索引语言/文件、编译诊断和未解析原因。**功能映射**展示已有标注；新生成的代码图没有功能提案时，该页为空是正常的，不是分析失败。
 
-例如 `const { task } = { task: run }; task()` 可以沿初始化定位 `run`；`invoke(run)` 中的形参调用也可以保留 `run` 的传参来源。但没有找到的调用方、对象变更和动态分派仍未覆盖，不能把局部来源当成唯一运行时目标。
+代码关系的四种状态：
 
-点击关系记录中的“值来源追踪”，展开来源路径，再点任意步骤查看准确源码与哈希，可返回原关系。没有可恢复目标时同样展示停止位置，例如 Hook/工厂返回值、getter、动态键、展开表达式、解构默认值、可变绑定或已写入参数。不会根据框架名或类型签名虚构返回函数。
+| 状态 | 意义 |
+| --- | --- |
+| `bound` 静态绑定 | 已定位到相应声明或明确结构关系；不证明实际执行或运行时目标唯一 |
+| `candidate` 候选 | 有类型、成员或有限值来源依据；不代表枚举了全部运行时实现 |
+| `unresolved` 未解析 | 调用位置存在，但没有足够依据定位实现；不代表没有关系 |
+| `external` 外部边界 | 定位到索引范围外的依赖/标准库声明；不代表分析了依赖实现 |
 
-每次追踪最多 12 层、64 个探索步骤、16 条来源路径、16 个停止位置；每个函数最多采纳 16 个直接调用点。超过预算显式设置 `truncated=true`，不隐藏截断。`evidence.valueOrigins.complete` 固定为 `false`：即使预算未耗尽，也不承诺调用方全集、对象状态、时序或路径可行性。解构默认值和 rest 暂停分析；普通参数默认值仅在已索引调用确实省略该实参时提供条件来源。
+回调传入、JSX、导入与继承不会冒充普通函数调用。用户接受功能映射，也不会把它依赖的候选关系升级成确定事实。
 
-来源证据随既有 `callers/callees` 查询返回；默认查询仍不遍历候选，显式指定 `--include-candidates` 才纳入。旧报告没有来源字段时不反推补齐。规则 4 阶段 CI 以固定规则 3 为对照，使用同一源码/类型依赖并核对全部显式调用点。项目地图阶段则以 CP9（规则 4）为对照，要求文件、节点、关系、范围和诊断全部不变。
+## 4. 让 Agent 使用 Skill 生成功能提案
 
-## 交互页面
+### 最直接的方式：提供 Skill 路径
 
-新报告默认打开项目地图。选择目录节点后点击“进入目录”，逐层定位到文件，再打开已有函数与源码视图；“返回项目地图”保留上次目录位置。点击跨目录连接可分页审阅原始关系，每页 25 条；组内、范围外、无目标和未索引区域都有独立入口。目录名称只代表真实路径，不是 AI 归纳的业务功能。
+不需要先配置 MCP。向能执行本地命令的 Agent 提供以下任务，**将路径替换为你的绝对路径**：
 
-画布默认最多 12 个子级节点、24 条聚合连接，支持增加预算；超限会明确显示，仍可通过左侧和下方列表继续探索。浏览器与 CLI 使用同一份纯投影逻辑，不修改原始代码图。完整解释与边界见 [项目地图说明](docs/project-map.md)。
+```text
+读取 <工具目录>/skills/repographia-function-map/SKILL.md，
+按照其中的探索、反例检查、自评和检查点流程执行。
 
-在局部探索视图中，左侧从文件切换到函数/类，点击节点进入局部关系图；点击连线或下方关系记录，右侧展示具体依据。文件视图会聚合该文件内实体的关系，函数视图保留函数级归属。
+CLI：<工具目录>/dist/cli.js
+代码图：<工具目录>/reports/codex-monitor-r1/graph.json
+已有标注：无
+输出目录：<工具目录>/reports/feature-run-1（新目录）
 
-默认隐藏按路径识别的测试文件；顶部统计仍覆盖整个选定程序。局部图中每侧最多展示 7 个邻接目标，同目标连线显示首条匹配记录；完整匹配记录在下方分页展示。界面始终标出图的截断情况，避免误认为屏幕上的几条线就是所有关系。
+先选择一个有限的功能区域，提出 1–3 个有代码依据的功能划分。
+保留支持依据、限制条件和未探索区域，不根据目录名猜功能。
+只提交待审提案，不运行或修改目标项目，不代替我接受。
+保存原始查询、提案、自评和 TRIAL.md，完成后给我报告路径。
+```
 
-“分析边界”列出未索引源码、忽略目录、符号链接、编译诊断及当前分析能力限制。诊断列表最多展示前 100 条，完整数据保留在 JSON 中。
+已有人工标注时，将“已有标注：无”换为其 JSON 绝对路径，并要求所有查询、校验、提交都使用同一份 `--features`。**不要为了绕开旧决定而新建空标注。** 每批分析使用固定的 `graph.json`，不要边查边重新扫描或混用不同快照的 ID。
 
-## 给程序和 Agent 使用
+Agent 使用的命令入口是：
 
 ```sh
-node dist/cli.js query reports/codex-monitor/graph.json map
-node dist/cli.js query reports/codex-monitor/graph.json map src --kind import
-node dist/cli.js query reports/codex-monitor/graph.json map-records . --from electron --to src --limit 25
-node dist/cli.js query reports/codex-monitor/graph.json search scanLocal
-node dist/cli.js query reports/codex-monitor/graph.json callees scanLocal --depth 2
-node dist/cli.js query reports/codex-monitor/graph.json callers scanLocal --include-candidates
+node dist/cli.js agent --help
 ```
 
-名称不唯一时明确报错，请从搜索结果复制节点 ID，而不是让工具猜选哪个同名函数。默认只遍历 `bound` 的显式调用/构造/模板调用，候选关系必须显式开启。回调传入、JSX、导入不混入函数调用链。
+它提供 `overview`、`search`、`inspect`、`relation`、`check`、`submit`。原始输出为 JSON，错误带修正提示；模型只负责语义和准确 ID，程序核验引用、哈希与源码引文。机器读取输出时使用 `node dist/cli.js`，不要把 npm 自身的日志当作 JSON。
 
-查询返回 `omittedRelations` 和 `boundary`，包含深度、数量预算、是否截断、是否还有关系，以及未装入结果节点集合的端点。查询没有返回路径并不证明运行时路径不存在。
+提案成功提交后，会生成独立新目录，包含原始 `proposal.json`、派生 `features.json`、`assessment.json`、`index.html` 和最后写入的 `receipt.json`。**打开这份新目录的 HTML 才能看到新增功能**，原代码图 HTML 不会自动刷新。新映射只能是 `agent/proposed`，不会覆盖原功能或已接受/拒绝的映射。
 
-## 可复现验证
+### 可选：安装为 Codex 用户级 Skill
+
+按 [Codex 官方 Skill 文档](https://developers.openai.com/codex/build-skills)，用户级目录为 `~/.agents/skills/`。在 RepoGraphia 目录复制**整个** Skill 文件夹，包括 `references/`：
+
+Windows PowerShell：
+
+```powershell
+$dest = Join-Path $HOME ".agents/skills/repographia-function-map"
+if (Test-Path $dest) { throw "Skill 已存在，请先备份或检查自定义改动，不直接覆盖。" }
+New-Item -ItemType Directory -Force (Split-Path $dest) | Out-Null
+Copy-Item "./skills/repographia-function-map" $dest -Recurse
+```
+
+macOS / Linux：
+
+```sh
+mkdir -p "$HOME/.agents/skills"
+if [ ! -e "$HOME/.agents/skills/repographia-function-map" ]; then
+  cp -R ./skills/repographia-function-map "$HOME/.agents/skills/"
+else
+  printf '%s\n' 'Skill 已存在，请先备份或检查改动，不直接覆盖。'
+fi
+```
+
+在 Codex 中显式使用 `$repographia-function-map`，仍需提供工具、代码图和输出路径；Skill 本身不包含分析器或模型。宿主未识别时重启宿主，或直接使用上面的“读取 Skill 路径”方式。其他 Agent 的安装位置以各自文档为准；RepoGraphia 不会自动修改全局设置，也未保证自动触发率。
+
+## 5. 保存标注，以及代码更新后的迁移
+
+**页面里的修改只在内存中。** 接受、拒绝或修正映射后，点击“导出标注 JSON”并保存下载文件；关闭页面不会自动写回 HTML、源码或 Git。以后可以在页面导入该 JSON，或生成新报告：
+
+```sh
+node dist/cli.js features check "./reports/codex-monitor-r1/graph.json" "./features-reviewed.json"
+node dist/cli.js features render "./reports/codex-monitor-r1/graph.json" "./features-reviewed.json" --out "./reports/features-reviewed.html"
+```
+
+`check` 退出码：`0` 引用匹配，`2` 含失效证据，`1` 格式或操作错误。引用匹配不等于业务含义正确。`render` 可以显示失效标注，但不会偷偷跳转到新版本的同名函数。文件输出同样拒绝覆盖已有路径。
+
+代码改变后，保留旧图和旧标注，再生成新图。通过页面“跨快照迁移”导入旧图，逐条选择复用、重新指定或暂缓；也可先用 CLI 生成只读计划：
+
+```sh
+node dist/cli.js features plan "./reports/codex-monitor-r1/graph.json" "./reports/codex-monitor-r2/graph.json" "./features-reviewed.json" --out "./reports/migration-plan.json"
+```
+
+旧接受在明确迁移后退回待审，拒绝保留，暂缓项保留旧证据并继续失效。没有同名或模糊自动重绑。完整操作见 [迁移说明](docs/feature-migration.md)。
+
+## 6. 更新到主分支最新版
+
+在 RepoGraphia 目录先确认并保留自己的未提交修改，再执行：
+
+```sh
+git fetch origin
+git switch master
+git pull --ff-only origin master
+npm ci --ignore-scripts
+npm run build
+node dist/cli.js agent --help
+```
+
+从旧开发分支切过来也用这组命令；不需要 `reset --hard` 或清理工作区。切换被本地修改阻止时，先提交或另行保存修改，不强制覆盖。
+
+工具更新不会刷新旧 HTML；重新生成报告请用新 `--out` 路径。使用仓库内 Skill 路径会随 `git pull` 更新；已复制到用户目录的 Skill 则需先保留自定义改动，再手动同步整个目录。
+
+## 常见问题
+
+| 现象 | 处理 |
+| --- | --- |
+| 找不到 `dist/cli.js` | 在工具目录完成 `npm ci --ignore-scripts` 和 `npm run build`，确认不是在目标仓库执行 |
+| 不认识 `agent` 命令 | 按上节更新到 master 并重新构建，避免使用旧分支或旧 dist |
+| `Output directory already exists` / `EEXIST` | 使用新的报告目录或输出文件；不要复用、预建最后一级目录或覆盖旧快照 |
+| `Output must be outside...` | 将输出放在工具的 reports 或其他目标仓库之外的位置 |
+| 无法解析模块、图中有很多未知关系 | 检查目标依赖和所选 tsconfig；在“分析边界”看实际诊断，不把未知当作不存在 |
+| `SOURCE_REQUIRED` / 只有 excerpt | 用 `--include-source` 生成新图，然后从新快照开始探索 |
+| `STALE_BASE` / `SNAPSHOT_CONFLICT` / `REVISION_CONFLICT` | 核对图与标注，必要时显式迁移；不要手改哈希或版本来绕过校验 |
+| Agent 声称提交但没看到功能 | 查看新提交目录的 `index.html` 和有效 `receipt.json`，不是原报告；I/O 中断留下的目录不要当作成功 |
+| 浏览器刷新后编辑消失 | 页面不自动保存，需导出 JSON；保留并重新导入导出文件 |
+
+## 验证、边界与开发文档
 
 ```sh
 npm test
 ```
 
-自动化测试覆盖别名、跨文件重导出、重载、遮蔽、接口分派、动态值、回调归属、构造函数、JSX、未知依赖、证据坐标/哈希、查询边界、Windows 路径、配置范围、HTML 注入防护和只读输出约束。Windows CI 中需要创建符号链接权限的 3 项用例会明确跳过，其余照常执行；Linux 执行全部用例。
+CI 使用锁定 TypeScript 5.9.3，运行 Linux/Windows 单元测试，以及真实离线 Chromium 的代码图、项目地图、功能映射、迁移和 Agent 报告检查。另在固定 Codex-Monitor 提交上做同输入对照，不运行目标应用。Agent 样例复播是协议/界面回归，**不是另一轮模型理解实验**；作者的实际 Skill 自用和修改记录见 [试跑记录](docs/trials/agent-notification/)。
 
-真实样本固定为：
+目前不支持内置模型 API、MCP 服务、全项目自动功能识别保证、实时 Git Diff/Agent 进度、增量分析、完整跨语言/跨进程调用图或动态追踪。报告为静态快照，HEAD 只作版本基线，不代表工作区一定无修改；实际依据以快照和内容哈希为准。
 
-```text
-yaelysia/Codex-Monitor
-490d822a9593d8d4b78a9188dd0daa0ae791eaf6
-```
+工具不执行目标代码，没有远程遥测或报告网络请求，但不是用于敌对仓库的操作系统沙箱。源码/标注中的文本不是可信指令；任意文件写权限也不会被 Skill 或提案协议限制成隔离环境。
 
-CI 在隔离目录读取这个提交、安装依赖时禁用生命周期脚本，校验三个实际跨文件调用绑定和 IPC 不误连规则，再用 Chromium 测试生成页面。不会运行 Codex-Monitor 的应用或业务测试。`codex-monitor-report` 构建产物包含 HTML、JSON、截图、原因汇总、新旧规则对照和带版本的验证摘要（legacy-test.html 仅是格式兼容夹具，不是旧版工具实测报告）。另有 `checkpoint-source` 保存实际测试 Git 树的源码归档，不包含凭据、依赖或未跟踪文件，保留 30 天。长期接手以 Git 提交和检查点文档为准，而不是依赖会过期的构建产物。
-
-本地复现需要该提交的**独立副本**，不要为了复现而覆盖你正在开发的工作区：
-
-```sh
-node scripts/verify-sample.mjs /path/to/pinned/Codex-Monitor ./reports/codex-monitor
-```
-
-样本的关系数量和已通过的选定断言不等于全仓库精确率、召回率或功能正确率；这些指标尚未建立独立人工标注基准。
-
-## 数据与安全边界
-
-报告默认包含源码片段；`--include-source` 还会包含完整的已索引文件。**分享报告相当于分享其中的代码**，私有项目报告不应随意上传。报告没有外部资源或网络请求，源代码以文本显示，内嵌 JSON 经过转义并配合脚本哈希 CSP。
-
-分析器只读取目标文件及类型/配置依赖，不执行目标代码、npm 脚本或插件，不注入 Hook、不修改目标仓库。Git 仅用于读取 HEAD 基线，不运行可能触发仓库自定义辅助程序的 `git status`；`dirty` 当前为 `null`，报告的实际内容身份以文件哈希和 snapshot 为准，HEAD 不能证明工作区无改动。
-
-这是本地开发工具，不是用于不可信仓库的操作系统级沙箱。初次分析较大项目建议在开发副本中执行，并保留足够内存；目前是全量重建，没有增量分析或后台监控。
-
-## 结构与后续方向
-
-```text
-src/project.ts  项目范围、配置、路径、编译器输入
-src/analyze.ts  程序化关系提取与结构化证据
-src/model.ts    JSON 数据模型
-src/value-origins.ts 有界解构/直接实参来源与停止证据
-src/query.ts    有界关系查询
-src/diagnostics.ts 未解析原因汇总和分页证据
-src/project-map.ts 共享目录投影、类型聚合与证据分页
-src/feature-map.ts 功能/代码标注、引用校验与版本化修正
-src/feature-cli.ts 标注创建、检查、修正和报告输出
-src/feature-migration.ts 新旧快照对照、显式迁移与历史保留
-src/report.ts  安全的离线报告生成
-src/cli.ts     命令行入口
-viewer/        无外部资源的 HTML/CSS/JS 审阅界面
-tests/         分析准确性与边界回归
-scripts/       固定真实样本和浏览器验证
-```
-
-项目地图已具备从整体到源码的审阅链路，功能与代码的显式映射和人工修正也已具备第一版。现已支持显式跨快照迁移；后续扩充语义标注验收，再引入可选功能归纳、变更定位与 Agent 任务视图。详细约束见 [架构说明](docs/architecture.md)；开发约定见 [AGENTS.md](AGENTS.md)。
-
-## 功能与代码映射（试验版）
-
-现在可以在独立 JSON sidecar 中维护功能提案与代码的多对多关联，并在“功能映射”页沿着代码锚点查看原关系、源码和值来源。共享代码不会自动形成业务依赖。人工接受/拒绝与证据是否过期分别显示；候选和未知关系不会因接受而升级。
-
-页面支持新建/修正功能、代码反向关联、人工评审、导入和导出；**编辑只是内存草稿，需导出 JSON 保存**，不会写回源码或原 HTML。没有 sidecar 时功能页为空。当前 Codex-Monitor 示例是助手编写的三个有限提案，不是自动识别或用户确认。
-
-```sh
-node dist/cli.js features init reports/codex-monitor/graph.json --out features.json
-node dist/cli.js features check reports/codex-monitor/graph.json features.json
-node dist/cli.js features render reports/codex-monitor/graph.json features.json --out feature-report.html
-```
-
-新命令拒绝覆盖已有文件。快照/规则/源码/锚点变化后，旧映射明确失效，禁止同名自动重绑定。数据语义、编辑命令及失效限制见 [功能映射说明](docs/feature-mapping.md)。
-
-## 随代码演进维护标注：显式跨快照迁移
-
-本轮增加 `features plan` / `features migrate` 和页面“跨快照迁移”。对比旧/新图，区分可复用锚点、需重新审阅和无匹配；用户先预览再确认。暂缓条目保留旧快照并继续失效，旧人工接受迁入后退回待审，拒绝不会自动撤销。不按同名函数猜测新位置。
-
-迁移输出 FeatureMap schema 2；普通新建仍是 schema 1，新工具可以读两种，旧工具不能读取 schema 2。页面修改仍须导出 JSON 自行保存。使用方法与明确边界见 [跨快照迁移](docs/feature-migration.md)。
+[架构](docs/architecture.md) · [项目地图](docs/project-map.md) · [功能标注](docs/feature-mapping.md) · [Agent CLI](docs/agent-cli.md) · [开发约定](AGENTS.md) · [当前接手检查点](docs/CHECKPOINT.md)
