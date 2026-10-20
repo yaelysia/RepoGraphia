@@ -9,3 +9,8 @@
 .feature-field {display:block;font-size:12px;color:#a6b5c8;margin:10px 0}.feature-field input,.feature-field textarea {display:block;width:100%;margin-top:5px;padding:8px;background:#101926;color:#e0e6f0;border:1px solid #3d4c61;border-radius:5px;box-sizing:border-box}
 .feature-field textarea {min-height:75px;resize:vertical}#feature-import {color:#a6b5c8} .feature-review:disabled {opacity:.45;cursor:not-allowed}
 .feature-card:focus-visible,.feature-mapping:focus-visible {outline:2px solid #9bc5fc;outline-offset:2px}
+
+#feature-cards[hidden],#feature-mappings[hidden],#feature-selected[hidden],#feature-migration[hidden] {display:none}
+#migration-rows {display:grid;gap:8px;margin:12px 0}#migration-pager {display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+#feature-migration {overflow-wrap:anywhere}#migration-old-graph {max-width:100%;display:block;margin:8px 0}
+#migration-preview {margin-top:12px}#migration-summary {color:#b3c9ea}#detail select {max-width:100%}

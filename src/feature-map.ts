@@ -14,13 +14,18 @@ export interface RelationAnchor {
   kind: Relation['kind']; status: Relation['status']; typeOnly: boolean;
   from: string; targets: string[]; rule: string;
 }
+export interface FeatureBasis {
+  snapshot: string; analysisRevision: number | null; compilerVersion: string; config: string | null;
+}
 export interface FeatureMapping {
   id: string; featureId: string; code: CodeAnchor; role: MappingRole;
   rationale: string; evidence: RelationAnchor[]; decision: ReviewDecision;
+  /** Required in schema 2: deferred annotations retain their original snapshot. */
+  basis?: FeatureBasis;
 }
 export interface FeatureMap {
-  schemaVersion: 1; revision: number;
-  basis: { snapshot: string; analysisRevision: number | null; compilerVersion: string; config: string | null };
+  schemaVersion: 1 | 2; revision: number;
+  basis: FeatureBasis;
   features: Feature[]; mappings: FeatureMapping[];
   /** User-declared local history, NOT authenticated identity or a tamper-proof audit log. */
   history: { revision: number; actor: string; actorKind: 'manual' | 'agent'; at: string;
@@ -82,15 +87,14 @@ export function createFeatureMapApi() {
   function validate(input: unknown): FeatureMap {
     require(JSON.stringify(input)?.length <= 5 * 1024 * 1024, 'document exceeds 5 MiB character budget');
     const m = object(input, ['schemaVersion','revision','basis','features','mappings','history']);
-    require(m.schemaVersion === 1, 'unsupported schema'); integer(m.revision, 'revision');
-    const b = object(m.basis, ['snapshot','analysisRevision','compilerVersion','config']); hash(b.snapshot);
-    if (b.analysisRevision !== null) integer(b.analysisRevision, 'analysisRevision', 1);
-    text(b.compilerVersion, 'compilerVersion'); if (b.config !== null) path(b.config);
+    require(m.schemaVersion === 1 || m.schemaVersion === 2, 'unsupported schema'); integer(m.revision, 'revision');
+    validateBasis(m.basis);
     array(m.features, 1000); m.features.forEach(feature);
     const features = m.features as Feature[]; unique(features.map(f => f.id));
     array(m.mappings);
     for (const item of m.mappings) {
-      const r = object(item, ['id','featureId','code','role','rationale','evidence','decision']);
+      const r = object(item, ['id','featureId','code','role','rationale','evidence','decision', ...(m.schemaVersion === 2 ? ['basis'] : [])]);
+      if (m.schemaVersion === 2) validateBasis(r.basis);
       id(r.id); require(features.some(f => f.id === r.featureId), 'unknown feature'); anchor(r.code, false);
       member(r.role, roles, 'role'); text(r.rationale, 'rationale'); member(r.decision, decisions, 'decision');
       array(r.evidence, 100); r.evidence.forEach(e => anchor(e, true));
@@ -102,10 +106,22 @@ export function createFeatureMapApi() {
       const h = object(item, ['revision','actor','actorKind','at','reason','operation','subject','before','after']);
       require(h.revision === i + 1, 'nonsequential edit history'); text(h.actor, 'actor', 200);
       member(h.actorKind, ['manual','agent'], 'actorKind'); timestamp(h.at); text(h.reason, 'edit reason');
-      member(h.operation, ['feature','mapping','review'], 'operation'); id(h.subject);
+      member(h.operation, ['feature','mapping','review', ...(m.schemaVersion === 2 ? ['migration'] : [])], 'operation'); id(h.subject);
       require('before' in h && 'after' in h, 'history values missing');
     });
     return clone(input as FeatureMap);
+  }
+  function validateBasis(input: unknown) {
+    const b = object(input, ['snapshot','analysisRevision','compilerVersion','config']); hash(b.snapshot);
+    if (b.analysisRevision !== null) integer(b.analysisRevision, 'analysisRevision', 1);
+    text(b.compilerVersion, 'compilerVersion'); if (b.config !== null) path(b.config);
+  }
+  function basisIssues(current: FeatureBasis, original: FeatureBasis): string[] {
+    const issues: string[] = [];
+    for (const key of ['snapshot','analysisRevision','compilerVersion','config'] as const)
+      if (current[key] !== original[key]) issues.push('changed-' + key);
+    if (current.analysisRevision === null || original.analysisRevision === null) issues.push('unversioned-analysis');
+    return issues;
   }
   function timestamp(x: unknown) { text(x, 'timestamp', 40); require(/^\d{4}-\d\d-\d\dT/.test(x) && Number.isFinite(Date.parse(x)), 'invalid timestamp'); }
   const basis = (g: CodeGraph): FeatureMap['basis'] => ({ snapshot: g.project.snapshot,
@@ -117,13 +133,10 @@ export function createFeatureMapApi() {
     return { nodes: new Map(g.nodes.map(n => [n.id,n])), edges: new Map(g.relations.map(e => [e.id,e])), files: new Map(g.files.map(f => [f.path,f])) };
   }
   function assess(g: CodeGraph, input: unknown) {
-    const map = validate(input), idx = indexes(g), globalIssues: string[] = [];
-    const current = basis(g);
-    for (const key of ['snapshot','analysisRevision','compilerVersion','config'] as const)
-      if (current[key] !== map.basis[key]) globalIssues.push('changed-' + key);
-    if (current.analysisRevision === null || map.basis.analysisRevision === null) globalIssues.push('unversioned-analysis');
+    const map = validate(input), idx = indexes(g), current = basis(g);
+    const globalIssues = basisIssues(current, map.basis);
     const mappings: MappingAssessment[] = map.mappings.map(mapping => {
-      const issues = [...globalIssues], warnings: string[] = ['semantic-claim-not-program-proof'];
+      const issues = [...globalIssues, ...basisIssues(current, mapping.basis ?? map.basis)], warnings: string[] = ['semantic-claim-not-program-proof'];
       const a = mapping.code, n = idx.nodes.get(a.nodeId), file = idx.files.get(a.file);
       if (!file) issues.push('missing-file');
       else if (file.hash !== a.fileHash) issues.push('changed-source');
@@ -161,6 +174,24 @@ export function createFeatureMapApi() {
         rejected: mappings.filter(m => m.mapping.decision === 'rejected').length,
         mappedNodes: new Set(mappings.filter(m => m.current && m.mapping.decision !== 'rejected').map(m => m.mapping.code.nodeId)).size } };
   }
+  /** Capture exact current references once per graph; callers still assess relation relevance. */
+  function anchors(g: CodeGraph) {
+    const idx = indexes(g);
+    return (nodeId: string, relationIds: string[]): Pick<FeatureMapping, 'code' | 'evidence'> => {
+      const n = idx.nodes.get(nodeId); require(n, 'unknown node; exact id required');
+      const f = idx.files.get(n.location.file); require(f, 'unindexed source');
+      array(relationIds, 100); unique(relationIds);
+      return {
+        code: { nodeId: n.id, file: n.location.file, fileHash: f.hash, start: n.location.start,
+          end: n.location.end, name: n.name, kind: n.kind },
+        evidence: relationIds.map(key => {
+          const r = idx.edges.get(key); require(r, 'unknown relation'); const p = r.evidence;
+          return { relationId: r.id, file: p.location.file, fileHash: p.fileHash, start: p.location.start, end: p.location.end,
+            kind: r.kind, status: r.status, typeOnly: !!r.typeOnly, from: r.from, targets: [...r.targets], rule: p.rule };
+        }),
+      };
+    };
+  }
   function forNode(g: CodeGraph, input: unknown, nodeId: string) {
     return assess(g, input).mappings.filter(m => m.current && m.mapping.decision !== 'rejected' && m.mapping.code.nodeId === nodeId);
   }
@@ -181,18 +212,10 @@ export function createFeatureMapApi() {
       id(operation.id); member(operation.role, roles, 'role'); text(operation.rationale, 'rationale');
       require(map.features.some(f => f.id === operation.featureId), 'unknown feature');
       require(!assess(g, map).globalIssues.length, 'stale basis; create a new map for a new snapshot');
-      const idx = indexes(g), n = idx.nodes.get(operation.nodeId);
-      require(n, 'unknown node; exact id required'); const f = idx.files.get(n.location.file); require(f, 'unindexed source');
-      array(operation.relationIds, 100); unique(operation.relationIds);
-      const evidence = operation.relationIds.map(key => {
-        const r = idx.edges.get(key); require(r, 'unknown relation'); const p = r.evidence;
-        return { relationId: r.id, file: p.location.file, fileHash: p.fileHash, start: p.location.start, end: p.location.end,
-          kind: r.kind, status: r.status, typeOnly: !!r.typeOnly, from: r.from, targets: [...r.targets], rule: p.rule };
-      });
+      const captured = anchors(g)(operation.nodeId, operation.relationIds);
       subject = operation.id; before = map.mappings.find(m => m.id === subject) ?? null;
       after = { id: subject, featureId: operation.featureId, role: operation.role, rationale: operation.rationale,
-        code: { nodeId: n.id, file: n.location.file, fileHash: f.hash, start: n.location.start, end: n.location.end, name: n.name, kind: n.kind },
-        evidence, decision: 'proposed' } satisfies FeatureMapping;
+        ...captured, ...(map.schemaVersion === 2 ? { basis: basis(g) } : {}), decision: 'proposed' } satisfies FeatureMapping;
       map.mappings = [...map.mappings.filter(m => m.id !== subject), after as FeatureMapping];
       const assessment = assess(g, map).mappings.find(m => m.mapping.id === subject)!;
       require(assessment.current, assessment.issues.join(', '));
@@ -210,5 +233,5 @@ export function createFeatureMapApi() {
       reason: context.reason, operation: operation.op, subject, before, after });
     return validate(map);
   }
-  return { create, validate, assess, forNode, edit };
+  return { create, validate, assess, forNode, edit, anchors, basis };
 }
