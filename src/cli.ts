@@ -6,6 +6,7 @@ import { analyze } from './analyze.js';
 import { renderHtml } from './report.js';
 import { findNode, neighborhood } from './query.js';
 import { inside } from './project.js';
+import { resolutionSummary, diagnosticRecords } from './diagnostics.js';
 import type { CodeGraph } from './model.js';
 
 const help = `RepoGraphia 0.1.0 — evidence-grounded static code explorer
@@ -14,6 +15,8 @@ const help = `RepoGraphia 0.1.0 — evidence-grounded static code explorer
   node dist/cli.js query <graph.json> search <text>
   node dist/cli.js query <graph.json> callers|callees <node-id-or-unique-name> [--depth 1] [--include-candidates]
 
+  node dist/cli.js query <graph.json> diagnostics [reason] [--offset 0] [--limit 25]
+
 No target code, build scripts, tests or AI are executed. Dependencies are never auto-installed.
 The report contains source excerpts; --include-source also embeds complete indexed files.
 Output must be outside the analyzed repository. Diagnostics/unindexed regions remain visible.
@@ -21,6 +24,7 @@ Output must be outside the analyzed repository. Diagnostics/unindexed regions re
 try {
   const { positionals: args, values } = parseArgs({ allowPositionals: true, options: {
     out: { type: 'string' }, project: { type: 'string' }, depth: { type: 'string' },
+    offset: { type: 'string' }, limit: { type: 'string' },
     'include-source': { type: 'boolean' }, 'include-candidates': { type: 'boolean' },
     help: { type: 'boolean', short: 'h' },
   } });
@@ -46,10 +50,18 @@ try {
       calls: graph.coverage.callsByStatus, unindexedFiles: graph.coverage.unindexed.length,
       diagnostics: graph.diagnostics.length, elapsedMs: Math.round(performance.now() - started) }, null, 2));
   } else if (args[0] === 'query') {
-    if (args.length !== 4) throw new Error('query requires graph.json, operation, and selector');
+    if (args.length !== 4 && !(args.length === 3 && args[2] === 'diagnostics'))
+      throw new Error('query requires graph.json, operation, and selector (optional for diagnostics)');
     const graph: CodeGraph = JSON.parse(fs.readFileSync(args[1]!, 'utf8'));
     if (graph.schemaVersion !== 1 || !Array.isArray(graph.nodes) || !Array.isArray(graph.relations)) throw new Error('Unsupported graph schema');
-    if (args[2] === 'search') {
+    if (args[2] === 'diagnostics') {
+      if (!args[3] && (values.limit !== undefined || values.offset !== undefined))
+        throw new Error('Select a diagnostic reason when using --limit or --offset');
+      console.log(JSON.stringify(args[3] ? diagnosticRecords(graph, args[3], {
+        offset: values.offset === undefined ? undefined : Number(values.offset),
+        limit: values.limit === undefined ? undefined : Number(values.limit),
+      }) : resolutionSummary(graph), null, 2));
+    } else if (args[2] === 'search') {
       const matches = graph.nodes.filter(n => `${n.name} ${n.location.file}`.toLowerCase().includes(args[3]!.toLowerCase()));
       console.log(JSON.stringify({ total: matches.length, truncated: matches.length > 100, nodes: matches.slice(0, 100) }, null, 2));
     } else {

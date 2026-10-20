@@ -1,8 +1,9 @@
 import ts from 'typescript';
 import path from 'node:path';
 import fs from 'node:fs';
-import type { CodeGraph, CodeNode, Evidence, Relation, RelationKind, Status } from './model.js';
-import { CALL_KINDS } from './model.js';
+import type { CodeGraph, CodeNode, Evidence, Relation, RelationKind, Status, UnresolvedReason } from './model.js';
+import { ANALYSIS_REVISION, CALL_KINDS } from './model.js';
+import { createValueOriginTracer } from './value-origins.js';
 import { loadProject, locate, normalize, hash, gitState, isSource, inside, fileKey, isDependency } from './project.js';
 
 const executable = (n: ts.Node): n is ts.FunctionDeclaration | ts.FunctionExpression | ts.ArrowFunction |
@@ -10,15 +11,25 @@ const executable = (n: ts.Node): n is ts.FunctionDeclaration | ts.FunctionExpres
   ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n) || ts.isArrowFunction(n) ||
   ts.isMethodDeclaration(n) || ts.isConstructorDeclaration(n) || ts.isGetAccessor(n) || ts.isSetAccessor(n);
 const named = (n: ts.Node): n is ts.NamedDeclaration => 'name' in n;
+const transparent = (n: ts.Node): n is ts.ParenthesizedExpression | ts.AsExpression |
+  ts.NonNullExpression | ts.TypeAssertion | ts.SatisfiesExpression =>
+  ts.isParenthesizedExpression(n) || ts.isAsExpression(n) || ts.isNonNullExpression(n) ||
+  ts.isTypeAssertionExpression(n) || ts.isSatisfiesExpression(n);
 function unwrap(n: ts.Node): ts.Node {
-  while (ts.isParenthesizedExpression(n) || ts.isAsExpression(n) || ts.isNonNullExpression(n) || ts.isTypeAssertionExpression(n)) n = n.expression;
+  while (transparent(n)) n = n.expression;
   return n;
 }
+/** A computed method/accessor name is evaluated outside that method's body. */
+const inDefinitionContext = (node: ts.Node, child: ts.Node): boolean =>
+  executable(node) && ts.isComputedPropertyName(child);
 function label(n: ts.Node): string {
   if (named(n) && n.name) return n.name.getText();
   if (ts.isConstructorDeclaration(n)) return 'constructor';
   if (ts.isArrowFunction(n) || ts.isFunctionExpression(n)) {
-    if (ts.isVariableDeclaration(n.parent) || ts.isPropertyDeclaration(n.parent) || ts.isPropertyAssignment(n.parent)) return n.parent.name.getText();
+    let value: ts.Node = n;
+    while (value.parent && transparent(value.parent)) value = value.parent;
+    const parent = value.parent;
+    if (parent && (ts.isVariableDeclaration(parent) || ts.isPropertyDeclaration(parent) || ts.isPropertyAssignment(parent))) return parent.name.getText();
     const p = n.getSourceFile().getLineAndCharacterOfPosition(n.getStart());
     return `<callback:${p.line + 1}:${p.character + 1}>`;
   }
@@ -38,9 +49,11 @@ export function analyze(input: string, options: { project?: string; includeSourc
   const add = (owner: string, node: ts.Node, kind: RelationKind, targets: string[], status: Status,
     rule: string, explanation: string, targetLabel: string, typeOnly?: boolean) => {
     const loc = locate(node, p.root);
-    relations.push({ id: 'edge:' + hash(`${owner}:${kind}:${loc.start}:${loc.end}:${relations.length}`).slice(0, 20),
+    const relation: Relation = { id: 'edge:' + hash(`${owner}:${kind}:${loc.start}:${loc.end}:${relations.length}`).slice(0, 20),
       from: owner, targets: [...new Set(targets)].sort(), kind, status, targetLabel,
-      ...(typeOnly === undefined ? {} : { typeOnly }), evidence: evidence(node, rule, explanation) });
+      ...(typeOnly === undefined ? {} : { typeOnly }), evidence: evidence(node, rule, explanation) };
+    relations.push(relation);
+    return relation;
   };
   for (const sf of p.sources) {
     const id = fileId(sf);
@@ -48,6 +61,7 @@ export function analyze(input: string, options: { project?: string; includeSourc
       location: locate(sf, p.root), snippet: sf.text.slice(0, 900), hasBody: true };
     nodes.push(rootNode); bodies.set(id, rootNode); ids.set(sf, id);
     const visit = (node: ts.Node, parent: string) => {
+      const enclosing = parent;
       let kind: CodeNode['kind'] | undefined;
       if (ts.isClassDeclaration(node) || ts.isClassExpression(node)) kind = 'class';
       else if (ts.isInterfaceDeclaration(node)) kind = 'interface';
@@ -60,7 +74,7 @@ export function analyze(input: string, options: { project?: string; includeSourc
           snippet: node.getText().slice(0, 1400), hasBody: executable(node) && !!node.body };
         nodes.push(item); bodies.set(id, item); ids.set(node, id); astById.set(id, node); parent = id;
       }
-      ts.forEachChild(node, child => visit(child, parent));
+      ts.forEachChild(node, child => visit(child, inDefinitionContext(node, child) ? enclosing : parent));
     };
     ts.forEachChild(sf, n => visit(n, id));
   }
@@ -71,19 +85,24 @@ export function analyze(input: string, options: { project?: string; includeSourc
     }
     return symbol;
   }
+  function symbolDeclarations(node: ts.Node): readonly ts.Declaration[] {
+    node = unwrap(node);
+    return unalias(checker.getSymbolAtLocation(ts.isPropertyAccessExpression(node) ? node.name : node))?.declarations ?? [];
+  }
+  const outside = (d: ts.Declaration): boolean =>
+    !inside(p.root, d.getSourceFile().fileName) || isDependency(d.getSourceFile().fileName);
   function declarations(node: ts.Node, seen = new Set<ts.Node>()): ts.Declaration[] {
     node = unwrap(node);
     if (seen.has(node)) return [];
     seen.add(node);
     if (ids.has(node) && !ts.isSourceFile(node)) return [node as ts.Declaration];
-    const symbol = unalias(checker.getSymbolAtLocation(ts.isPropertyAccessExpression(node) ? node.name : node));
-    const ds = symbol?.declarations ?? [];
+    const ds = symbolDeclarations(node);
     const expanded: ts.Declaration[] = [];
     for (const d of ds) {
-      if (ts.isVariableDeclaration(d) && d.initializer) {
+      if ((ts.isVariableDeclaration(d) || ts.isPropertyAssignment(d) || ts.isPropertyDeclaration(d)) && d.initializer) {
         const next = unwrap(d.initializer);
         if (executable(next) || ts.isClassExpression(next)) expanded.push(next as ts.Declaration);
-        else if (ts.isIdentifier(next)) expanded.push(...declarations(next, seen));
+        else if (ts.isIdentifier(next) || ts.isPropertyAccessExpression(next) || ts.isElementAccessExpression(next)) expanded.push(...declarations(next, seen));
         else expanded.push(d);
       } else expanded.push(d);
     }
@@ -94,18 +113,53 @@ export function analyze(input: string, options: { project?: string; includeSourc
     node = unwrap(node);
     if (seen.has(node)) return true;
     seen.add(node);
-    const symbol = unalias(checker.getSymbolAtLocation(ts.isPropertyAccessExpression(node) ? node.name : node));
-    return (symbol?.declarations ?? []).some(d => {
-      if (ts.isParameter(d) || ts.isBindingElement(d) || ts.isPropertyDeclaration(d) || ts.isPropertySignature(d)) return true;
+    return symbolDeclarations(node).some(d => {
+      if (ts.isParameter(d) || ts.isBindingElement(d) || ts.isPropertyDeclaration(d) || ts.isPropertyAssignment(d) || ts.isPropertySignature(d)) return true;
       if (!ts.isVariableDeclaration(d)) return false;
       if (!(ts.isVariableDeclarationList(d.parent) && d.parent.flags & ts.NodeFlags.Const)) return true;
-      return !!d.initializer && ts.isIdentifier(unwrap(d.initializer)) && indirectBinding(d.initializer, seen);
+      const value = d.initializer && unwrap(d.initializer);
+      return !!value && (ts.isPropertyAccessExpression(value) || ts.isElementAccessExpression(value) ||
+        ts.isIdentifier(value) && indirectBinding(value, seen));
     });
   }
-  function resolve(expr: ts.Node, signature?: ts.Signature): { targets: string[]; status: Status; rule: string; why: string } {
+  /** Describe observed declaration syntax, not a guessed runtime cause or fix. */
+  function unresolvedReason(expr: ts.Node, ds: readonly ts.Declaration[], seen = new Set<ts.Node>()): UnresolvedReason {
     expr = unwrap(expr);
+    if (seen.has(expr)) return 'complex-expression';
+    seen.add(expr);
+    if (expr.kind === ts.SyntaxKind.ImportKeyword) return 'dynamic-import';
+    const direct = symbolDeclarations(expr);
+    if (direct.some(ts.isParameter)) return 'parameter-value';
+    if (direct.some(ts.isBindingElement)) return 'binding-pattern';
+    if (direct.some(ts.isGetAccessorDeclaration)) return 'returned-callable';
+    if (ds.some(d => d.getSourceFile().isDeclarationFile && !outside(d))) return 'out-of-scope-declaration';
+    for (const d of direct) if (ts.isVariableDeclaration(d)) {
+      if (!(ts.isVariableDeclarationList(d.parent) && d.parent.flags & ts.NodeFlags.Const)) return 'mutable-value';
+      if (d.initializer) {
+        const value = unwrap(d.initializer);
+        if (ts.isCallExpression(value) || ts.isAwaitExpression(value)) return 'returned-callable';
+        if (ts.isIdentifier(value) || ts.isPropertyAccessExpression(value) || ts.isElementAccessExpression(value))
+          return unresolvedReason(value, symbolDeclarations(value), seen);
+      }
+    }
+    if (direct.some(d => ts.isPropertyDeclaration(d) || ts.isPropertySignature(d) || ts.isPropertyAssignment(d))) return 'property-value';
+    if (ds.some(d => !outside(d) && !ids.has(d) && !p.sources.includes(d.getSourceFile()))) return 'out-of-scope-declaration';
+    if (ts.isCallExpression(expr) || ts.isAwaitExpression(expr)) return 'returned-callable';
+    if (!direct.length && !ds.length && !(ts.isIdentifier(expr) || ts.isPropertyAccessExpression(expr) || ts.isElementAccessExpression(expr))) return 'complex-expression';
+    return direct.length || ds.length ? 'unmapped-declaration' : 'missing-symbol';
+  }
+  function resolve(expr: ts.Node, signature?: ts.Signature): {
+    targets: string[]; status: Status; rule: string; why: string;
+    reason?: UnresolvedReason; declaration?: Evidence['declaration'];
+  } {
+    expr = unwrap(expr);
+    const direct = symbolDeclarations(expr);
     let ds = declarations(expr);
     if (!ds.length && signature?.declaration) ds = [signature.declaration];
+    // Reading a getter or an alias of it is not invoking the returned callable.
+    if ([...direct, ...ds].some(ts.isGetAccessorDeclaration)) return { targets: [], status: 'unresolved',
+      rule: 'accessor-return-value', reason: 'returned-callable',
+      why: 'Property access uses a getter; its returned callable is not resolved. This call is not a direct call of the getter body.' };
     const targets = ds.flatMap(d => ids.has(d) ? [ids.get(d)!] : []);
     const indirect = indirectBinding(expr) || !(ts.isIdentifier(expr) || ts.isPropertyAccessExpression(expr) ||
       ts.isElementAccessExpression(expr) || ts.isArrowFunction(expr) || ts.isFunctionExpression(expr));
@@ -116,19 +170,36 @@ export function analyze(input: string, options: { project?: string; includeSourc
       return { targets, status: uncertain ? 'candidate' : 'bound',
         rule: contract ? 'type-contract' : indirect ? 'indirect-reference' : virtual ? 'member-binding' : 'symbol-binding',
         why: contract ? 'Bound to a type contract, not a runtime implementation. Implementations are not enumerated.'
-          : uncertain ? 'Compiler declaration candidate only. Receiver/value flow, reassignment and dispatch are not exhaustively modeled.'
+          : uncertain ? 'Compiler declaration/initializer candidate only. Receiver/value flow, reassignment and dispatch are not exhaustively modeled.'
             : 'Compiler-resolved lexical declaration (aliases and overload bodies normalized). Does not prove execution or runtime exclusivity.' };
     }
-    const external = ds.length > 0 && ds.every(d => {
-      const f = d.getSourceFile().fileName;
-      return !inside(p.root, f) || isDependency(f);
-    });
-    if (external && !indirect) return { targets: [], status: 'external', rule: 'external-declaration',
-      why: 'Declaration is outside indexed project source (dependency or standard library). Implementation not analyzed.' };
-    return { targets: [], status: 'unresolved', rule: indirect ? 'unknown-callable-value' : 'no-project-target',
+    // An external var/property declaration is still a known TYPE boundary. Do not require
+    // it to be immutable. A LOCAL parameter or mutable alias cannot use this shortcut.
+    const directExternal = direct.length > 0 && direct.every(outside);
+    const external = ds.length > 0 && ds.every(outside);
+    if (directExternal || external && !indirect) return { targets: [], status: 'external', rule: 'external-declaration',
+      why: 'Compiler-bound declaration is outside indexed source (dependency or standard library). Implementation not analyzed; not runtime execution or target exclusivity.' };
+    const reason = unresolvedReason(expr, ds);
+    const boundary = reason === 'out-of-scope-declaration' ? ds.find(d => !outside(d)) : undefined;
+    return { targets: [], status: 'unresolved', rule: indirect ? 'unknown-callable-value' : 'no-project-target', reason,
+      ...(boundary ? { declaration: { location: locate(boundary, p.root), fileHash: hash(boundary.getSourceFile().text) } } : {}),
       why: indirect ? 'Callable value is supplied through a parameter/property/assignment. No whole-program value-flow proof.'
-        : 'No indexed implementation binding. Missing types, dynamic values or out-of-scope declarations may be involved.' };
+        : 'No indexed implementation binding. The diagnostic reason describes syntax/declaration evidence, not a proven runtime target.' };
   }
+  const constructorTarget = (target: ts.Node | undefined): ts.Node | undefined => {
+    if (target && (ts.isClassDeclaration(target) || ts.isClassExpression(target)))
+      return target.members.find(m => ts.isConstructorDeclaration(m) && m.body) ?? target;
+    return target;
+  };
+  const traceOrigins = createValueOriginTracer({
+    sources: p.sources, checker, ids, unwrap, declarations: symbolDeclarations,
+    point: node => ({ location: locate(node, p.root), excerpt: node.getText().slice(0, 240),
+      fileHash: hashes.get(node.getSourceFile().fileName) ?? hash(node.getSourceFile().text) }),
+    directTarget: expr => {
+      const r = resolve(expr);
+      return r.status === 'bound' && r.targets.length === 1 ? constructorTarget(astById.get(r.targets[0]!)) : undefined;
+    },
+  });
   function moduleRelation(owner: string, node: ts.Node, spec: ts.Expression, kind: RelationKind, typeOnly = false) {
     if (!ts.isStringLiteralLike(spec)) {
       add(owner, node, kind, [], 'unresolved', 'dynamic-module', 'Module specifier is not a static string.', spec.getText(), typeOnly); return;
@@ -146,6 +217,7 @@ export function analyze(input: string, options: { project?: string; includeSourc
   }
   for (const sf of p.sources) {
     const walk = (node: ts.Node, owner: string) => {
+      const enclosing = owner;
       if (ids.has(node)) owner = ids.get(node)!;
       let call: ts.CallExpression | ts.NewExpression | ts.TaggedTemplateExpression | undefined;
       let expr: ts.Expression | undefined, kind: RelationKind = 'call';
@@ -154,17 +226,33 @@ export function analyze(input: string, options: { project?: string; includeSourc
       if (ts.isTaggedTemplateExpression(node)) { call = node; expr = node.tag; kind = 'tag'; }
       if (call && expr) {
         const result = resolve(expr, checker.getResolvedSignature(call));
-        if (kind === 'construct') {
-          result.targets = result.targets.map(id => {
-            const declaration = astById.get(id);
-            if (declaration && (ts.isClassDeclaration(declaration) || ts.isClassExpression(declaration))) {
-              const ctor = declaration.members.find(member => ts.isConstructorDeclaration(member) && member.body);
-              if (ctor && ids.has(ctor)) return ids.get(ctor)!;
-            }
-            return id;
-          });
+        const origins = result.status === 'unresolved' && (result.reason === 'binding-pattern' || result.reason === 'parameter-value')
+          ? traceOrigins(expr) : undefined;
+        if (origins?.sources.length) {
+          result.targets = [...new Set(origins.sources.map(s => s.target))];
+          result.status = 'candidate'; result.rule = 'bounded-value-origin';
+          result.why = 'Declaration candidates traced through explicit initializers and indexed direct arguments. '
+            + 'This is a bounded, non-exhaustive origin set, not a feasible runtime path or proof of target exclusivity.';
+          delete result.reason;
         }
-        add(owner, call, kind, result.targets, result.status, result.rule, result.why, expr.getText());
+        if (kind === 'construct') result.targets = result.targets.map(id => {
+          const target = constructorTarget(astById.get(id));
+          return target && ids.has(target) ? ids.get(target)! : id;
+        });
+        const relation = add(owner, call, kind, result.targets, result.status, result.rule, result.why, expr.getText());
+        if (origins) {
+          if (kind === 'construct') for (const source of origins.sources) {
+            const target = constructorTarget(astById.get(source.target));
+            if (target && ids.has(target) && source.target !== ids.get(target)) {
+              source.target = ids.get(target)!;
+              source.path.push({ kind: 'constructor', location: locate(target, p.root),
+                excerpt: target.getText().slice(0, 240), fileHash: hashes.get(target.getSourceFile().fileName)! });
+            }
+          }
+          relation.evidence.valueOrigins = origins;
+        }
+        if (result.reason) relation.evidence.reason = result.reason;
+        if (result.declaration) relation.evidence.declaration = result.declaration;
         if (ts.isCallExpression(call) && call.expression.kind === ts.SyntaxKind.ImportKeyword) {
           if (call.arguments[0]) moduleRelation(owner, call, call.arguments[0], 'import');
         }
@@ -191,9 +279,13 @@ export function analyze(input: string, options: { project?: string; includeSourc
         moduleRelation(fileId(sf), node, node.moduleReference.expression, 'import', node.isTypeOnly);
       if (ts.isHeritageClause(node)) for (const item of node.types) {
         const r = resolve(item.expression);
+        const typeOnly = node.token === ts.SyntaxKind.ImplementsKeyword || ts.isInterfaceDeclaration(node.parent);
         add(owner, item, node.token === ts.SyntaxKind.ImplementsKeyword ? 'implements' : 'extends', r.targets,
-          r.targets.length ? 'bound' : r.status, 'heritage-declaration',
-          'Explicit declared inheritance/type relationship; not a call edge.', item.getText());
+          typeOnly && r.targets.length ? 'bound' : r.status,
+          typeOnly ? 'heritage-type-declaration' : 'heritage-value-binding',
+          typeOnly ? 'Explicit type relationship, not runtime dispatch or a call edge.'
+            : 'Superclass value expression. ' + r.why + ' This inheritance record is not a call edge.',
+          item.getText(), typeOnly);
       }
       if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
         const text = node.tagName.getText();
@@ -203,7 +295,7 @@ export function analyze(input: string, options: { project?: string; includeSourc
             'JSX component reference; framework rendering is not a direct function call.', text);
         }
       }
-      ts.forEachChild(node, child => walk(child, owner));
+      ts.forEachChild(node, child => walk(child, inDefinitionContext(node, child) ? enclosing : owner));
     };
     walk(sf, fileId(sf));
   }
@@ -217,13 +309,14 @@ export function analyze(input: string, options: { project?: string; includeSourc
   const indexed = new Set(p.sources.map(sf => fileKey(sf.fileName)));
   const files = p.sources.map(sf => ({ path: normalize(path.relative(p.root, sf.fileName)), hash: hashes.get(sf.fileName)!,
     lines: sf.getLineStarts().length, ...(options.includeSource ? { source: sf.text } : {}) })).sort((a, b) => a.path.localeCompare(b.path));
-  // Include every compiler-read input and effective configuration in snapshot identity.
+  // Rule changes must invalidate identity even when source/compiler inputs are identical.
   const configText = p.configPath ? fs.readFileSync(p.configPath, 'utf8') : '';
-  const snapshot = hash(JSON.stringify({ files: [...p.readHashes].sort(), options: p.options, configText, compiler: ts.version }));
+  const snapshot = hash(JSON.stringify({ analysisRevision: ANALYSIS_REVISION, files: [...p.readHashes].sort(),
+    options: p.options, configText, compiler: ts.version }));
   const counts: Record<Status, number> = { bound: 0, candidate: 0, unresolved: 0, external: 0 };
   for (const edge of relations) if (CALL_KINDS.has(edge.kind)) counts[edge.status]++;
   return { schemaVersion: 1, project: { name: path.basename(p.root), ...gitState(p.root), snapshot,
-      compilerVersion: ts.version, config: p.configPath ? normalize(path.relative(p.root, p.configPath)) : null, createdAt: new Date().toISOString() },
+      analysisRevision: ANALYSIS_REVISION, compilerVersion: ts.version, config: p.configPath ? normalize(path.relative(p.root, p.configPath)) : null, createdAt: new Date().toISOString() },
     files, nodes: nodes.sort((a, b) => a.id.localeCompare(b.id)), relations, diagnostics: p.diagnostics,
     coverage: { indexedFiles: files.length, inventorySourceFiles: p.found.files.filter(isSource).length,
       unindexed: p.found.files.filter(f => (isSource(f) || /\.(py|ps1|cs|cpp|c|go|rs|java)$/.test(f)) && !indexed.has(fileKey(f)))
@@ -231,7 +324,7 @@ export function analyze(input: string, options: { project?: string; includeSourc
       skippedSymlinks: p.found.symlinks, ignoredDirectories: p.found.ignored,
       syntaxCalls: Object.values(counts).reduce((a, b) => a + b, 0), callsByStatus: counts,
       limitations: ['Static bindings are not runtime proof or a complete call graph.',
-        'No whole-program points-to analysis, reflection, callback invocation inference, or cross-process/IPC/HTTP bridging.',
+        'Bounded direct-argument/initializer origins are not whole-program points-to analysis; no reflection, implicit framework callback invocation, or cross-process/IPC/HTTP bridging.',
         'Function bodies in dependencies and declaration files are outside the index; diagnostics can reduce resolution quality.',
         'Single selected tsconfig; referenced projects require separate analysis. JavaScript follows allowJs in that configuration.',
         'Getters, setters, decorators, implicit coercions and implicit constructor calls are not exhaustively modeled.',

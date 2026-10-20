@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { analyze } from '../dist/analyze.js';
 import { renderHtml } from '../dist/report.js';
+import { resolutionSummary } from '../dist/diagnostics.js';
+import { ANALYSIS_REVISION } from '../dist/model.js';
 
 const revision='490d822a9593d8d4b78a9188dd0daa0ae791eaf6';
 const root=path.resolve(process.argv[2]||'../Codex-Monitor');
@@ -35,7 +37,27 @@ for(const e of graph.relations) {
   assert.ok(e.evidence.fileHash); assert.ok(e.evidence.location.line>0);
 }
 assert.equal(state(),before,'Analyzing must not modify the sample repository');
-const summary={sample:'yaelysia/Codex-Monitor',revision,compiler:graph.project.compilerVersion,
+const diagnosticSummary=resolutionSummary(graph);
+assert.equal(graph.project.analysisRevision,ANALYSIS_REVISION);
+assert.equal(diagnosticSummary.groups.reduce((n,g)=>n+g.count,0),graph.coverage.callsByStatus.unresolved);
+assert.ok(!diagnosticSummary.groups.some(g=>g.reason==='unclassified'),'Current unknown calls must retain a reason');
+const maps=graph.relations.filter(e=>e.kind==='construct'&&e.targetLabel==='Map'&&e.evidence.location.file==='src/shared/activity-tracker.ts');
+assert.ok(maps.length>0); assert.ok(maps.every(e=>e.status==='external'&&!e.targets.length));
+const cache=graph.relations.find(e=>e.kind==='construct'&&e.targetLabel==='DesktopDirectoryCache'&&e.evidence.location.file==='electron/desktop-runtime-logs.ts');
+assert.equal(cache?.evidence.reason,'out-of-scope-declaration');
+assert.ok(cache.evidence.declaration.location.file.endsWith('.d.mts'));
+const origins = graph.relations.filter(e=>e.evidence.valueOrigins);
+assert.ok(origins.length>0,'Real sample should retain bounded origin evidence');
+const originCandidates = origins.filter(e=>e.status==='candidate');
+assert.ok(originCandidates.length>0,'Known direct arguments should supply declaration candidates');
+for (const e of origins) {
+  const trace=e.evidence.valueOrigins;
+  assert.equal(trace.complete,false); assert.ok(trace.visited<=trace.limits.maxSteps);
+  assert.ok(trace.sources.every(s=>e.targets.includes(s.target)));
+  assert.ok(e.status!=='bound','Origin inference never upgrades to a bound runtime target');
+}
+const summary={valueOrigins:{examined:origins.length,candidateCallsites:originCandidates.length,
+  stillUnresolved:origins.filter(e=>e.status==='unresolved').length,truncated:origins.filter(e=>e.evidence.valueOrigins.truncated).length},analysisRevision:graph.project.analysisRevision,snapshot:graph.project.snapshot,sample:'yaelysia/Codex-Monitor',revision,compiler:graph.project.compilerVersion,
   files:graph.files.length,symbols:graph.nodes.filter(n=>n.kind!=='file').length,
   explicitCallsites:graph.coverage.syntaxCalls,callsByStatus:graph.coverage.callsByStatus,
   unindexed:graph.coverage.unindexed.length,diagnostics:graph.diagnostics.length,
@@ -45,4 +67,10 @@ fs.mkdirSync(out,{recursive:true});
 fs.writeFileSync(path.join(out,'graph.json'),JSON.stringify(graph,null,2));
 fs.writeFileSync(path.join(out,'index.html'),renderHtml(graph));
 fs.writeFileSync(path.join(out,'summary.json'),JSON.stringify(summary,null,2));
+fs.writeFileSync(path.join(out,'resolution-summary.json'),JSON.stringify(diagnosticSummary,null,2));
+// Schema-compatibility fixture, not an assertion of older analyzer behavior.
+const legacy={...graph,project:{...graph.project,name:'Legacy-format fixture',analysisRevision:undefined},
+  files:graph.files.map(({source,...rest})=>rest),
+  relations:graph.relations.map(e=>({...e,evidence:{...e.evidence,reason:undefined,declaration:undefined,valueOrigins:undefined}}))};
+fs.writeFileSync(path.join(out,'legacy-test.html'),renderHtml(legacy));
 console.log(JSON.stringify(summary,null,2));
