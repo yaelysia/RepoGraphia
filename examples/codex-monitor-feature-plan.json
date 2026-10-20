@@ -1,0 +1,17 @@
+{
+  "sampleCommit": "490d822a9593d8d4b78a9188dd0daa0ae791eaf6",
+  "author": "RepoGraphia assistant-authored example (not user-reviewed)",
+  "features": [
+    {"id":"session-collection","title":"多来源会话采集","description":"从采集入口组织来源扫描；本提案仅映射调度入口和本地扫描，不声称覆盖远程采集全链路。","questions":["SSH、WSL 子流程尚未逐项标注。","依赖注入和跨进程边界仍需另外验证。"]},
+    {"id":"source-results","title":"采集结果与耗时汇总","description":"将单个来源的扫描结果包装为会话列表、时间信息和错误信息，供采集入口汇总。","questions":["scan 的候选来源不是完整运行时目标集合。","没有根据这份标注执行或确认业务测试。"]},
+    {"id":"session-status","title":"会话状态判定","description":"依据 rollout 文本与时间信息生成状态及相关 token；只标注判定函数和本地采集接入位置。","questions":["判定逻辑是否满足全部使用场景仍需业务验收。","尚未将窗口跟踪、通知状态机合并为同一功能。"]}
+  ],
+  "mappings": [
+    {"id":"collection-entry","featureId":"session-collection","file":"electron/collector.ts","name":"refresh","role":"entry","rationale":"refresh 的函数体组织本地、WSL 和远程来源扫描；此处仅标注入口声明。"},
+    {"id":"collection-local","featureId":"session-collection","file":"electron/local.ts","name":"scanLocal","role":"implementation","rationale":"scanLocal 的实现读取本地 sessions 目录并整理会话记录；不推断其他来源实现。"},
+    {"id":"result-wrapper","featureId":"source-results","file":"electron/collector.ts","name":"sourceResult","role":"implementation","rationale":"sourceResult 调用传入的 scan，并包装 sessions、时间、错误与耗时；候选来源仍不完整。","callLabel":"scan"},
+    {"id":"result-entry","featureId":"source-results","file":"electron/collector.ts","name":"refresh","role":"support","rationale":"同一 refresh 声明也是来源结果汇总的接入点，和会话采集共享代码不等于两个功能相互调用。"},
+    {"id":"status-parser","featureId":"session-status","file":"electron/rollout.ts","name":"inferStatus","role":"implementation","rationale":"inferStatus 的实现处理文本事件与时间并返回状态、等待/结束等 token；此声明不代表所有上层状态规则。"},
+    {"id":"status-local","featureId":"session-status","file":"electron/local.ts","name":"scanLocal","role":"support","rationale":"本地扫描流程中接入状态判定；这与会话采集共享该代码实体，标注没有制造直接函数调用边。"}
+  ]
+}
