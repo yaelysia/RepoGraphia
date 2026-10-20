@@ -1,0 +1,29 @@
+/* Project projection: inventory, canvas and evidence stay separately bounded. */
+[hidden]{display:none!important}
+.segmented{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+#project-breadcrumb{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 18px;border-bottom:1px solid #28374c}
+#project-breadcrumb button{padding:5px 8px;background:#192a3e;border:1px solid #3a516c;border-radius:6px;color:#cbdcf3}
+#project-summary{padding:18px 20px 5px;background:linear-gradient(120deg,#182a41,#121d2e)}
+#project-summary>strong{font-size:14px;line-height:1.6}
+.project-counts{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.project-counts button,.project-budget-row button{padding:7px 10px;border:1px solid #3b4b64;border-radius:7px;background:#19283d;color:#d2def0;font-size:12px}
+.project-count:hover,.project-budget-row button:hover{border-color:#92b9f5;background:#263c59}
+#project-map{display:block;width:100%;min-height:300px;background:radial-gradient(ellipse at center,#142238,#101925 75%)}
+.project-node,.project-connection{cursor:pointer;outline:none}
+.project-node:focus rect{stroke:#e5edfc;stroke-width:3px}
+.project-connection:focus{filter:brightness(1.8)}
+.project-connection.dim{opacity:.18}
+.project-budget-row{display:flex;align-items:center;gap:12px;justify-content:space-between;padding:12px 18px;border-top:1px solid #253248;border-bottom:1px solid #253248;color:#a9bbd3;font-size:12px;line-height:1.6}
+.project-link{display:grid;width:100%;grid-template-columns:minmax(0,1fr) auto;gap:6px;text-align:left;background:transparent;color:#dce6f6;border:0;border-bottom:1px solid #243249;padding:12px 18px}
+.project-link strong{font-size:13px;overflow-wrap:anywhere}
+.project-link span{font-size:12px;color:#acc5e5}
+.project-link small{grid-column:1/-1;font-size:11px;color:#9aabc3;line-height:1.6}
+.project-link:hover{background:#1b2c43}
+.project-evidence{display:block;width:100%;text-align:left;overflow-wrap:anywhere}
+.project-evidence strong{display:block;font-size:12px}
+.project-evidence small{display:block;color:#97a9c2;margin-top:4px;font-size:10px;line-height:1.5}
+.project-drill{background:#213d59!important;color:#cbe7ff!important;border:1px solid #537b9f!important}
+.project-drill:disabled{opacity:.5;cursor:not-allowed}
+#return-project{margin:8px 18px}
+#project-links{max-height:380px;overflow:auto}
+@media(max-width:600px){.project-budget-row{flex-wrap:wrap}.project-link{grid-template-columns:minmax(0,1fr)}.project-link small{grid-column:1}.project-counts button{font-size:11px}#project-map{min-height:220px}}
