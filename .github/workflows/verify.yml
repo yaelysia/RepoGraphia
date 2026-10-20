@@ -47,7 +47,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
-          ref: 206dd363dcc023a8ab88590878cdabb62b44fcd8
+          ref: 801c47d70e045ce4b6e70c410b70f4a03b440725
           path: baseline-tool
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -77,6 +77,8 @@ jobs:
         working-directory: tool
       - run: node scripts/verify-feature-migration.mjs ../reports/baseline ../reports/codex-monitor
         working-directory: tool
+      - run: node scripts/verify-agent.mjs ../reports/codex-monitor
+        working-directory: tool
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -86,6 +88,7 @@ jobs:
       - run: python tool/scripts/check-project-map.py reports/codex-monitor/index.html --output reports/codex-monitor/preview.png
       - run: python tool/scripts/check-feature-map.py reports/codex-monitor
       - run: python tool/scripts/check-feature-migration.py reports/codex-monitor
+      - run: python tool/scripts/check-agent-report.py reports/codex-monitor/agent-replay/submission
       - uses: actions/upload-artifact@v4
         with:
           name: codex-monitor-report
