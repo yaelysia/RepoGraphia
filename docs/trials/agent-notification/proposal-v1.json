@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "basis": {"snapshot":"18dbe44a94c58882d91a6cfb13b550f7a96ad37b7453e3d5336952e40f05776b","analysisRevision":4,"compilerVersion":"5.9.3","config":"tsconfig.json"},
+  "expectedRevision": 9,
+  "baseDigest": "e255fe3f832e7cf5e650987afadd376a8862cf4cd44cc0d6c76851b0654fe35a",
+  "batchId": "notification-first-draft",
+  "scope": "桌面通知展示、点击处理以及前台会话的通知开关边界",
+  "unexplored": ["告警何时从采集状态生成。","系统通知投递、OS事件派发与焦点切换的真实执行效果。","静音、通知类型偏好和已读持久化尚未跟踪。"],
+  "features": [
+    {"id":"desktop-alert-interaction","title":"桌面告警展示与点击处理","description":"收到告警时尝试显示桌面通知；点击后请求标记当前告警已读并导航到相关会话。操作系统不支持通知时直接返回，不保证实际显示或成功聚焦。","questions":["操作系统回调触发情况没有动态验证。","事件按钮与正文点击的完整差异需在审阅时展开。"]},
+    {"id":"foreground-popup-gate","title":"前台会话的弹窗抑制","description":"告警分发时根据当前会话的前台状态决定是否显示原生通知；仅对会话相关通知进行抑制，数据源通知保留。","questions":["前台检测器抛异常时放行通知，此处没有验证OS检测精度。","上游全局静音与收件箱行为不在本次范围。"]}
+  ],
+  "mappings": [
+    {"op":"mapping","id":"desktop-show","featureId":"desktop-alert-interaction","nodeId":"node:9858e7c407e3914c9797","role":"entry","rationale":"创建通知、绑定动作和点击处理器后请求显示；这是原生通知辅助入口而非整个应用入口。","relationIds":["edge:57349558e280f06402b1","edge:0e43ac364bfd3a7e4890"]},
+    {"op":"mapping","id":"desktop-click","featureId":"desktop-alert-interaction","nodeId":"node:bfb0e7a4467dc6930035","role":"implementation","rationale":"正文点击先阻止重复处理，再调用 acknowledge、关闭通知并调用 focus。","relationIds":["edge:c0d7ad759792b2c8e88b","edge:4c4d36ebb808e92b7114"]},
+    {"op":"mapping","id":"desktop-action","featureId":"desktop-alert-interaction","nodeId":"node:374a41c0488a69895235","role":"implementation","rationale":"动作按钮只在第0项且未处理时确认当前事件并关闭通知。","relationIds":["edge:abab8605a14291408c4e"]},
+    {"op":"mapping","id":"foreground-entry","featureId":"foreground-popup-gate","nodeId":"node:021d9a84c4fe2011462b","role":"entry","rationale":"分发回调使用 shouldDisplayNativeAlert 的返回值提前返回，否则进入 showDesktopAlert。","relationIds":["edge:9cb3dbace0fd9d9e628b","edge:625df3e0013a252dc9a0"]},
+    {"op":"mapping","id":"foreground-rule","featureId":"foreground-popup-gate","nodeId":"node:6ca9280fabc03c880cf1","role":"implementation","rationale":"判定会话前台状态、绕过数据源告警，并在检测异常时放行。","relationIds":["edge:0bb95068ab0b594d2de1"]}
+  ],
+  "checks": [
+    {"featureId":"desktop-alert-interaction","nodeId":"node:9858e7c407e3914c9797","kind":"support","quote":"notice.show();","explanation":"有实际请求显示的调用位置，不证明系统一定显示。"},
+    {"featureId":"desktop-alert-interaction","nodeId":"node:9858e7c407e3914c9797","kind":"limit","quote":"if (!Notification.isSupported()) return;","explanation":"系统不支持时不进入创建通知。"},
+    {"featureId":"foreground-popup-gate","nodeId":"node:6ca9280fabc03c880cf1","kind":"support","quote":"return !isSessionForeground(alert.sessionKey);","explanation":"将会话前台检测结果取反作为放行结果。"},
+    {"featureId":"foreground-popup-gate","nodeId":"node:6ca9280fabc03c880cf1","kind":"limit","quote":"if (isSourceAlertKind(alert.kind)) return true;","explanation":"数据源告警不因会话前台而受此规则抑制。"}
+  ]
+}
