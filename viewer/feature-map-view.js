@@ -1,6 +1,8 @@
 /** Semantic annotations are editable sidecar data; the underlying code graph remains read-only. */
-function createFeatureMapView({graph, api, initial, make, button, onNode, onEvidence, onActivate}) {
+function createFeatureMapView({graph, api, migrationApi=FeatureMigration, initial, make, button, onNode, onEvidence, onActivate}) {
   const $ = id => document.getElementById(id), panel = $('feature-view');
+  const migrationButton=make('button','跨快照迁移');migrationButton.id='feature-migrate';panel.querySelector('.feature-actions').append(migrationButton);
+  const migrationPanel=make('section');migrationPanel.id='feature-migration';migrationPanel.hidden=true;$('feature-cards').before(migrationPanel);
   const labels = {proposed:'待审提案', accepted:'人工接受（自述）', rejected:'已拒绝'};
   const roles = {entry:'入口', implementation:'实现', support:'支撑', test:'测试代码（未运行）'};
   const issues = {'changed-snapshot':'分析快照已变化','changed-analysisRevision':'分析规则已变化',
@@ -58,6 +60,7 @@ function createFeatureMapView({graph, api, initial, make, button, onNode, onEvid
     }));
   }
   function showOverview() {
+    migrationView.close();
     const box=$('detail');box.replaceChildren(make('h3','可审阅的语义标注'),
       make('p','功能与代码是显式多对多关联，不自动扩展为所有被调用代码。共有代码不表示功能之间存在调用。'),
       make('p','“证据匹配”仅表示锚点仍对应当前分析快照；人工接受也不会改变候选/未知关系。'),
@@ -65,6 +68,7 @@ function createFeatureMapView({graph, api, initial, make, button, onNode, onEvid
     if(report.globalIssues.length)box.append(make('div',report.globalIssues.map(x=>issues[x]||x).join('；'),'callout'));
   }
   function showFeature(id) {
+    migrationView.close();
     selected=id;mappingPage=25;
     const f=doc.features.find(f=>f.id===id);if(!f)return;
     const box=$('detail');box.replaceChildren(make('span','PARTIAL FEATURE ANNOTATION','eyebrow'),make('h3',f.title),make('p',f.description));
@@ -85,6 +89,7 @@ function createFeatureMapView({graph, api, initial, make, button, onNode, onEvid
     if(items.length>mappingPage)box.append(button(`更多映射（${mappingPage}/${items.length}）`,()=>{mappingPage+=25;renderMappings();}));
   }
   function showMapping(id) {
+    migrationView.close();
     const item=report.mappings.find(m=>m.mapping.id===id);if(!item)return;
     selected=item.mapping.featureId;const m=item.mapping,box=$('detail');
     box.replaceChildren(make('h3',m.code.name),make('p',`${roles[m.role]} · ${labels[m.decision]} · ${item.current?'证据匹配':'已失效'}`),make('p',m.rationale));
@@ -95,7 +100,9 @@ function createFeatureMapView({graph, api, initial, make, button, onNode, onEvid
       for(const ref of m.evidence)box.append(button(`${ref.kind} · ${ref.status} · 查看原关系`,()=>{
         onEvidence(graph.relations.find(e=>e.id===ref.relationId));$('detail').prepend(backButton());
       },'detail-link feature-evidence'));
-    } else box.append(make('p','当前代码已不匹配：禁止按同名跳转或自动重新绑定，请保留旧快照并重新标注。'));
+    } else box.append(make('p','当前代码已不匹配：禁止按同名跳转或自动重新绑定。请导入旧代码图，使用跨快照迁移。'));
+    if(m.basis)box.append(make('p','此映射证据快照：'+m.basis.snapshot,'meta'));
+    box.append(button('修正关联理由、角色与证据',()=>mappingForm(m),'detail-link feature-correct'));
     context(box);
     for(const state of ['accepted','rejected','proposed']) {
       const b=button(labels[state],()=>{if(edit({op:'review',id,decision:state}))showMapping(id);},'detail-link feature-review');
@@ -105,12 +112,22 @@ function createFeatureMapView({graph, api, initial, make, button, onNode, onEvid
     for(const h of history)box.append(make('p',`r${h.revision} · ${h.actorKind}/${h.actor} · ${h.operation} · ${h.reason}`,'meta'));
   }
   function featureForm(f) {
+    migrationView.close();
     const box=$('detail');box.replaceChildren(make('h3',f?'编辑功能说明':'新建功能提案'));context(box);
     const title=fields(box,'功能名称',f?.title||''),description=fields(box,'功能说明',f?.description||'',true),questions=fields(box,'待确认问题（每行一个）',f?.questions.join('\n')||'',true);
     box.append(make('p','修改功能含义会将此前接受的映射退回待审，不会自动接受新语义。'),button('保存到内存草稿',()=>{
       const id=f?.id||freshId('feature');
       if(edit({op:'feature',feature:{id,title:title.value,description:description.value,questions:questions.value.split('\n').filter(x=>x.trim())}}))showFeature(id);
     },'detail-link feature-save'));
+  }
+  function mappingForm(m) {
+    const box=$('detail');box.replaceChildren(make('h3','修正代码关联'));context(box);
+    const target=fields(box,'关联实体准确 ID',m.code.nodeId),role=make('select');role.setAttribute('aria-label','修正代码角色');
+    for(const [k,v] of Object.entries(roles)){const opt=make('option',v);opt.value=k;role.append(opt);}role.value=m.role;box.append(role);
+    const why=fields(box,'修正关联理由',m.rationale,true),refs=fields(box,'关系准确 ID（每行一个）',m.evidence.map(e=>e.relationId).join('\n'),true);
+    box.append(make('p','显式更换目标或证据会退回待审。跨快照请先迁移；不会猜测同名目标。'),button('保存关联修正',()=>{
+      if(edit({op:'mapping',id:m.id,featureId:m.featureId,nodeId:target.value.trim(),role:role.value,rationale:why.value,relationIds:refs.value.split('\n').map(x=>x.trim()).filter(Boolean)}))showMapping(m.id);
+    },'detail-link feature-correction-save'));
   }
   function freshId(prefix) {let n=doc.revision+1;while([...doc.features,...doc.mappings].some(x=>x.id===`${prefix}-${n}`))n++;return `${prefix}-${n}`;}
   function backButton() {return button('← 返回功能映射',()=>{onActivate();if(selected)showFeature(selected);},'detail-link feature-back');}
@@ -149,5 +166,9 @@ function createFeatureMapView({graph, api, initial, make, button, onNode, onEvid
       notice(checked.summary.stale?'已导入，但部分映射失效；没有自动重绑定。':'标注已载入内存，原文件未修改。');
     }catch(error){notice('导入失败：'+error.message);}finally{event.target.value='';}
   };
+  const migrationView=createFeatureMigrationView({graph,api:migrationApi,getDocument:()=>doc,make,button,fields,context,notice,
+    editContext:()=>({expectedRevision:doc.revision,actor,actorKind:'manual',reason,at:new Date().toISOString()}),
+    onApplied:next=>{doc=next;report=api.assess(graph,doc);dirty=true;selected=null;refresh();showOverview();
+      $('feature-mappings').replaceChildren();$('feature-selected').textContent='选择功能审阅迁移结果';}});
   return {enter,leave,renderList,decorateNode,backButton,get active(){return active;}};
 }

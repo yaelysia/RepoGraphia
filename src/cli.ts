@@ -27,6 +27,9 @@ const help = `RepoGraphia 0.1.0 — evidence-grounded static code explorer
   node dist/cli.js features render <graph.json> <features.json> --out <new-report.html>
   node dist/cli.js features edit <graph.json> <features.json> --patch <edit.json> --expected-revision <n> --author <name> --actor-kind manual|agent --out <new-features.json>
 
+  node dist/cli.js features plan <old-graph.json> <new-graph.json> <features.json> --out <plan.json>
+  node dist/cli.js features migrate <old-graph.json> <new-graph.json> <features.json> --patch <migration.json> --expected-revision <n> --author <name> --actor-kind manual --out <new-features.json>
+
 Feature commands never overwrite existing files; check exits 2 for stale evidence. Semantic labels are proposals, not code facts.
 No target code, build scripts, tests or AI are executed. Dependencies are never auto-installed.
 The report contains source excerpts; --include-source also embeds complete indexed files.

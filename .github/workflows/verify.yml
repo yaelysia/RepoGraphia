@@ -22,6 +22,7 @@ jobs:
       - run: node --check viewer/app.js
       - run: node --check viewer/project-map-view.js
       - run: node --check viewer/feature-map-view.js
+      - run: node --check viewer/feature-migration-view.js
       - name: Archive the exact tested source (no credentials or working files)
         if: runner.os == 'Linux'
         run: git archive --format=tar --output="$RUNNER_TEMP/repographia-source.tar" HEAD
@@ -46,7 +47,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
-          ref: a64c67bb7e111a2a8c2e2f1f7a30677e2a1051ea
+          ref: 206dd363dcc023a8ab88590878cdabb62b44fcd8
           path: baseline-tool
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -74,6 +75,8 @@ jobs:
         working-directory: tool
       - run: node scripts/verify-feature-map.mjs ../reports/codex-monitor
         working-directory: tool
+      - run: node scripts/verify-feature-migration.mjs ../reports/baseline ../reports/codex-monitor
+        working-directory: tool
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -82,6 +85,7 @@ jobs:
       - run: python tool/scripts/check-viewer.py reports/codex-monitor/index.html --legacy-report reports/codex-monitor/legacy-test.html --output reports/codex-monitor/preview.png
       - run: python tool/scripts/check-project-map.py reports/codex-monitor/index.html --output reports/codex-monitor/preview.png
       - run: python tool/scripts/check-feature-map.py reports/codex-monitor
+      - run: python tool/scripts/check-feature-migration.py reports/codex-monitor
       - uses: actions/upload-artifact@v4
         with:
           name: codex-monitor-report

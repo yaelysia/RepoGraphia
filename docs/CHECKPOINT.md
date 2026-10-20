@@ -1,67 +1,57 @@
 # RepoGraphia 当前检查点
 
-## CP15：功能与代码映射层第一版已验证
+## CP18：显式跨快照迁移已实现并通过验证
 
-2026-10-20。仓库 `yaelysia/RepoGraphia`，工作分支 `feat/feature-code-mapping-r1`，PR #4；基线 CP12 `a64c67bb7e111a2a8c2e2f1f7a30677e2a1051ea`（PR #3）。先读 AGENTS.md、docs/feature-mapping.md、docs/architecture.md，再核对本检查点后的提交及 PR 状态。
+2026-10-20；分支 `feat/feature-migration-r1`，PR #5，基于 CP15 `206dd363dcc023a8ab88590878cdabb62b44fcd8` / PR #4。先读 AGENTS.md、docs/feature-migration.md、docs/feature-mapping.md，再核对本检查点后的提交和 PR 状态。#5 暂叠在 #4 上，上游 #2/#3/#4 仍按依赖顺序处理；本轮没有合并或覆盖它们，也没有修改 Codex-Monitor。
 
-完整实现：`10c7ed1b3d5d6b2020a0029415f24cfad433e30f`。Verify #20 `39377521379` 已完成 success；实际受测 PR 合并提交为 `4f6f7d54820dde6918b079df63f106ab1f89572e`。本 CP15 提交只更新文档，不改变该实现；最终文档 HEAD 的后续 CI 状态单独记录在 PR #4，不能冒用 #20。
+## 精确检查点
 
-当前 #4 叠在 #3 的 `feat/project-map-r1` 上，#3 叠在 #2 上。本轮未合并或改写这些基线，也未修改 Codex-Monitor。合并时应按依赖顺序处理，改变 PR 基线后重新核验；不要强推覆盖他人提交。
+- CP16 范围：`b95fbecd956cf1938d8ca66299e0ad975a3b803f`。
+- CP17 完整实现：`720f879de257dcace22420e2a68654c9ad347fc8`。
+- 实现 Git tree：`96bf6256659890bea3d982958db72883d7958821`。
+- Verify #22：`39383214561`，三个 job 全部 completed/success。
+- CI 实际合并测试提交：`e65adf7d2a52854e6ad2a39bf8f0b233aa05aee5`。
 
-## 已完成能力
+本 CP18 收尾提交更新文档及 CLI 帮助文字，不改动迁移逻辑或测试；最终 HEAD 的 CI 单独记录在 PR #5，不借用 #22 的状态，不为记录最后一个 SHA 递归提交检查点。
 
-独立 FeatureMap JSON sidecar；显式多对多关联和理由；声明/关系锚点；审阅决策与证据当前性分离；严格快照失效；版本冲突与自述修改历史；CLI init/check/edit/render；功能页与源码/原关系/值来源/反向功能导航；人工修正、接受/拒绝和导入导出。
+## 现在可以做什么
 
-示例是助手编写的 3 个有限功能提案、6 条映射、4 个不同代码实体；全部为 agent/proposed，0 人工接受。界面编辑只有内存草稿，导出 JSON 后才能自行保存；不会写入原 HTML 或目标 Git。
+共享纯 plan/apply；精确锚点、源码哈希和已记录静态邻域比较；可复用/需审阅/无匹配三类；显式 carry/replace/defer；双基线和版本检查；FeatureMap schema 2 每映射独立 basis；旧依据保留；旧接受退回待审，拒绝保留。CLI 与浏览器使用同一套规则。
 
-原静态分析规则 4、CodeGraph schema 1、项目投影版本 1 保持不变。没有 AI 自动归纳、动态运行、Git Diff 或增量分析。
+页面支持导入旧图、选择当前准确实体、预览、明确确认、暂缓保持失效及 JSON 导出。原功能关联现在可以通过表单修正理由、角色及显式关系证据。所有编辑只是内存草稿，不会自动保存到源文件、HTML 或 Git。
 
-## 已核验结果
+普通新建依旧为 FeatureMap schema 1，迁移输出 schema 2；CP15 或更早工具不支持新格式。CodeGraph schema 1、分析规则 4、目录投影 1 没有改变。accepted 不是业务正确性证明，也不消除 candidate/unknown 等警告。
 
-| 验证 | 实际结果 |
+## 锁定 CI 已核验结果
+
+| 检查 | 结果 |
 | --- | --- |
-| Linux / Node 22.23.3 / 锁定 TS 5.9.3 | 198 pass，0 fail，0 skip |
-| Windows / Node 22.23.3 / 锁定 TS 5.9.3 | 195 pass，0 fail，3 项既有符号链接权限 skip |
-| 原有证据/来源浏览器检查 | 30 项通过，实际 file:// |
-| 原有项目地图浏览器检查 | 24 项通过，实际 file:// |
-| 新功能映射浏览器检查 | 32 项通过，实际 file://；无页面异常或外部请求 |
-| 固定 Codex-Monitor | 3 功能/6 映射全部锚点匹配，候选警告保留；负例 6 条全部失效 |
+| Linux / Node 22.23.3 / TypeScript 5.9.3 | 标准 npm test：232 pass，0 fail，0 skip |
+| Windows / Node 22.23.3 / TypeScript 5.9.3 | 标准 npm test：229 pass，0 fail；3 项既有符号链接权限 skip |
+| 既有源码/项目地图/功能浏览器 | 30 + 24 + 32 项通过，实际 file:// |
+| 新迁移浏览器 | 25 项通过，实际 file://；无异常、无外部请求 |
+| 固定样本同输入对照 | files/nodes/relations/coverage/diagnostics 全部一致 |
 
-本轮新增 35 项单元/CLI 回归。固定样本与 CP12 分析器共用源码及类型依赖目录，files/nodes/relations/coverage/diagnostics 全部 deepEqual；131 文件、2630 个非文件实体、12978 个显式调用点及 363 未解析没有变化。数量与通过的断言不是业务正确率。
+本轮新增 34 项单元/CLI 回归。固定样本的 6 条功能提案均可复用引用，但仅验证同一源码因工具安装目录变化产生的新快照，不是业务代码变更。独立小型源码实际修改/删除验证为 1 可复用、2 需审阅、1 无匹配，其中包含调用方自身未改而依赖内容变化的反例。
 
-精确 job、产物和复核边界见 `docs/checkpoints/CP15-validation.md`。长期接手使用 Git 提交，不依赖 30 天后过期的源码归档。
+下载后已核验产物 ZIP 哈希、精确源码 Git tree、131 个源码哈希、HTML 内嵌图/标注与独立 JSON 一致性，并打开真实 CI 截图。详细 job、产物 ID 和范围见 `docs/checkpoints/CP18-validation.md`。
 
 ## 复现与接手
 
 ```sh
 git fetch origin
-git switch feat/feature-code-mapping-r1
+git switch feat/feature-migration-r1
 npm ci --ignore-scripts
 npm test
-npm run analyze -- ../Codex-Monitor --out ./reports/codex-monitor --include-source
-node dist/cli.js features init reports/codex-monitor/graph.json --out features.json
-node dist/cli.js features check reports/codex-monitor/graph.json features.json
-node dist/cli.js features render reports/codex-monitor/graph.json features.json --out feature-report.html
+node dist/cli.js features plan old-graph.json new-graph.json features.json --out migration-plan.json
 ```
 
-首次建立本地分支可用 `git switch --track origin/feat/feature-code-mapping-r1`。保留现有工作，不使用 reset/clean。features 写命令只创建新文件，已有同名输出将拒绝覆盖。
+首次本地跟踪使用 `git switch --track origin/feat/feature-migration-r1`；保留现有工作，不得 reset/clean。迁移必须保留对应旧图和旧标注；请求格式及实际 revision 用法见 `docs/feature-migration.md`。`features migrate` 只创建新文件；存在暂缓项时 `features check` 返回 2，这是失效披露，不是整个迁移没有完成。
 
-要复现三个样例，必须使用另一个独立样本副本，固定到 `490d822a9593d8d4b78a9188dd0daa0ae791eaf6`，按 CI 准备依赖类型后运行：
+## 当前边界及下一轮起点
 
-```sh
-node scripts/verify-sample.mjs /path/to/pinned/Codex-Monitor ./reports/codex-monitor
-node scripts/verify-feature-map.mjs ./reports/codex-monitor
-python scripts/check-feature-map.py ./reports/codex-monitor
-```
+第一版没有同名、模糊或自动重定位。原 ID 因源码偏移变化而丢失也会列为无匹配，不能直接当作代码已删除。静态邻域比较不是业务等价证明，未录入图的运行关系仍不覆盖。默认仍按快照失效，只有明确迁移后选定标注才引用新快照，暂缓标注继续保留旧 basis。
 
-浏览器验证需要 Playwright 1.55.0/Chromium。不要运行样本应用或业务测试。CI 产物里的 `features-edited-test.json` 是浏览器测试草稿，不是用户确认；交付只使用原始 features.json（全部 proposed），排除测试草稿和负例页面。
+全部实现及测试已经提交远端，没有未提交功能需要从临时环境挽救。下一轮先检查 PR #5 的最新验证/审阅与依赖状态，再在本映射协议上评估可选的 AI 提案导入入口：提案需准确代码证据、不能自我接受、不得覆盖既有人工决定。自动生成完整功能图、Git Diff、动态运行、增量分析和 Agent 任务路线仍未实现。
 
-## 明确边界与下一轮起点
-
-当前性只表示标注引用与输入图的一致性，不证明业务语义或上传图数据真实性。作者和审阅历史是自述而非认证。人工接受不消除 candidate/unresolved/类型证据等警告。
-
-本版整个 snapshot 变化都会使全部旧映射失效，即使被关联文件未变化；不自动迁移或按同名重绑定。功能定义变化会使此前接受的关联退回 proposed。跨快照迁移和细粒度失效仍待独立实现。
-
-下一轮先收集这三个有限提案的审阅反馈，完善关联理由/角色/证据的修正及显式迁移流程，再评估可选 AI 提案接口。完整自动功能图、Git 变更和 Agent 任务路线仍未实现，不是本轮遗失工作。
-
-全部应用实现已提交远端。当前临时容器本地为 Node 22.16.0 / TS 5.8.3 辅助测试；本页最终验证以锁定依赖的 CI 为准。
+本地辅助环境是 Node 22.16.0 / TS 5.8.3：各测试文件分别 232 通过，但整套并行 npm test 曾超时；未放宽测试、未强制退出以掩盖它。最终依据是上述 CI 标准命令成功。源码归档有 30 天期限，长期恢复依靠 Git 提交与检查点，而非临时文件或会过期的下载地址。

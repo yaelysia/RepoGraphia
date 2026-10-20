@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import type { CodeGraph } from './model.js';
 import { createProjectMapApi } from './project-map.js';
+import { createFeatureMigrationApi } from './feature-migration.js';
 import { createFeatureMapApi } from './feature-map.js';
 import { resolutionSummary } from './diagnostics.js';
 
@@ -19,7 +20,8 @@ export function renderHtml(graph: CodeGraph, features?: unknown): string {
   const featureData = features === undefined ? null : featureApi.validate(features);
   if (featureData) featureApi.assess(graph, featureData);
   const featureUi = fs.readFileSync(new URL('../viewer/feature-map-view.js', import.meta.url), 'utf8');
-  const script = `(() => { const FeatureMap = (${createFeatureMapApi.toString()})();\n${featureUi}\nconst ProjectMap = (${createProjectMapApi.toString()})();\n${ui}\n${app}\n})();`;
+  const migrationUi = fs.readFileSync(new URL('../viewer/feature-migration-view.js', import.meta.url), 'utf8');
+  const script = `(() => { const FeatureMap = (${createFeatureMapApi.toString()})();\nconst FeatureMigration = (${createFeatureMigrationApi.toString()})(FeatureMap);\n${migrationUi}\n${featureUi}\nconst ProjectMap = (${createProjectMapApi.toString()})();\n${ui}\n${app}\n})();`;
   const template = fs.readFileSync(new URL('../viewer/body.html', import.meta.url), 'utf8');
   const digest = createHash('sha256').update(script).digest('base64');
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

@@ -170,6 +170,7 @@ src/diagnostics.ts 未解析原因汇总和分页证据
 src/project-map.ts 共享目录投影、类型聚合与证据分页
 src/feature-map.ts 功能/代码标注、引用校验与版本化修正
 src/feature-cli.ts 标注创建、检查、修正和报告输出
+src/feature-migration.ts 新旧快照对照、显式迁移与历史保留
 src/report.ts  安全的离线报告生成
 src/cli.ts     命令行入口
 viewer/        无外部资源的 HTML/CSS/JS 审阅界面
@@ -177,7 +178,7 @@ tests/         分析准确性与边界回归
 scripts/       固定真实样本和浏览器验证
 ```
 
-项目地图已具备从整体到源码的审阅链路，功能与代码的显式映射和人工修正也已具备第一版。后续先完善标注审阅与跨快照迁移，再引入可选功能归纳、变更定位与 Agent 任务视图。详细约束见 [架构说明](docs/architecture.md)；开发约定见 [AGENTS.md](AGENTS.md)。
+项目地图已具备从整体到源码的审阅链路，功能与代码的显式映射和人工修正也已具备第一版。现已支持显式跨快照迁移；后续扩充语义标注验收，再引入可选功能归纳、变更定位与 Agent 任务视图。详细约束见 [架构说明](docs/architecture.md)；开发约定见 [AGENTS.md](AGENTS.md)。
 
 ## 功能与代码映射（试验版）
 
@@ -192,3 +193,9 @@ node dist/cli.js features render reports/codex-monitor/graph.json features.json 
 ```
 
 新命令拒绝覆盖已有文件。快照/规则/源码/锚点变化后，旧映射明确失效，禁止同名自动重绑定。数据语义、编辑命令及失效限制见 [功能映射说明](docs/feature-mapping.md)。
+
+## 随代码演进维护标注：显式跨快照迁移
+
+本轮增加 `features plan` / `features migrate` 和页面“跨快照迁移”。对比旧/新图，区分可复用锚点、需重新审阅和无匹配；用户先预览再确认。暂缓条目保留旧快照并继续失效，旧人工接受迁入后退回待审，拒绝不会自动撤销。不按同名函数猜测新位置。
+
+迁移输出 FeatureMap schema 2；普通新建仍是 schema 1，新工具可以读两种，旧工具不能读取 schema 2。页面修改仍须导出 JSON 自行保存。使用方法与明确边界见 [跨快照迁移](docs/feature-migration.md)。
