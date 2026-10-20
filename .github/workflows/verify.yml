@@ -44,7 +44,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
-          ref: 165532b7eb8dbb7872ef2e725a6f960df5256868
+          ref: 797ca3756d27dd699989840d27bd4b2a89144ce9
           path: baseline-tool
           persist-credentials: false
       - uses: actions/setup-node@v4

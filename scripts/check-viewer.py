@@ -75,6 +75,34 @@ with sync_playwright() as p:
     chosen_id = page.locator('.diagnostic-example').first.get_attribute('data-relation')
     page.locator('.diagnostic-example').first.click()
     check('diagnostic source drilldown', chosen_id in page.locator('#detail').inner_text() and '未解析分类' in page.locator('#detail').inner_text())
+    origins = [e for e in data['relations'] if e.get('evidence', {}).get('valueOrigins', {}).get('sources')]
+    if origins:
+        by_id = {n['id']: n for n in data['nodes']}
+        chosen = next(e for e in origins if by_id[e['from']]['kind'] != 'file')
+        owner = by_id[chosen['from']]
+        page.locator('#show-tests').check()
+        page.locator('#symbols-tab').click()
+        page.locator('#search').fill(owner['name'])
+        row = page.locator('.node-row[data-node="' + owner['id'] + '"]')
+        while not row.count() and page.locator('#more').is_visible():
+            page.locator('#more').click()
+        row.click()
+        record = page.locator('.edge-row[data-relation="' + chosen['id'] + '"]')
+        while not record.count() and page.locator('#more-edges').is_visible():
+            page.locator('#more-edges').click()
+        record.click()
+        check('origin candidate is never presented as complete', '不是完整运行时目标集合' in page.locator('.origin-scope').inner_text())
+        check('origin paths are navigable', page.locator('.origin-source').count() == len(chosen['evidence']['valueOrigins']['sources']))
+        page.locator('.origin-source summary').first.click()
+        expected = chosen['evidence']['valueOrigins']['sources'][0]['path'][0]
+        page.locator('.origin-source .origin-point').first.click()
+        check('origin source location and hash', expected['location']['file'] in page.locator('#detail').inner_text() and expected['fileHash'] in page.locator('#detail').inner_text())
+        page.locator('.origin-back').click()
+        check('origin return restores evidence', chosen['id'] in page.locator('#detail').inner_text())
+        check('origin unknown boundaries retained', page.locator('.origin-stop').count() == len(chosen['evidence']['valueOrigins']['stops']))
+        origin_image = Path(args.output).with_name(Path(args.output).stem + '-origins.png')
+        page.screenshot(path=str(origin_image), full_page=True)
+        page.locator('#search').fill('')
     page.set_viewport_size({'width': 430, 'height': 900})
     check('narrow viewport', page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'))
     check('no repository script execution', page.evaluate('globalThis.pwned') is None)
@@ -88,6 +116,7 @@ with sync_playwright() as p:
         check('legacy evidence can still be opened', page.locator('.diagnostic-example').count() > 0)
         page.locator('.diagnostic-example').first.click()
         check('legacy source drilldown', '未分类' in page.locator('#detail').inner_text())
+        check('legacy origins are not invented', page.locator('.origin-scope').count() == 0)
     browser.close()
     check('no browser exceptions', not errors)
     check('no external network requests', not [url for url in requests if not url.startswith('file:')])

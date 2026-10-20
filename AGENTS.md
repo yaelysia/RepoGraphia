@@ -24,6 +24,8 @@ Reuse TypeScript compiler APIs; avoid duplicating a compiler or introducing grap
 
 Keep reason codes tied to compiler/declaration evidence, never guessed runtime causes. Lowering unresolved counts must distinguish external-boundary reclassification from project-target candidates; use the same-input baseline comparison and never discard callsites to improve counts.
 
+Value-origin candidates must retain source paths and unknown/budget stops. Never claim that indexed direct callsites are all callers, or that initializer provenance proves a feasible runtime path. Keep candidate traversal opt-in.
+
 Bump `ANALYSIS_REVISION` in src/model.ts when extraction semantics change; it participates in snapshot identity. Old reports without a rule revision must remain explicitly unversioned.
 
 When changing schema or unsupported cases, update README and docs/architecture.md. Report actual test results and platform skips, not planned validation.

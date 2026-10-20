@@ -106,7 +106,11 @@ test('wrapped callback passing is retained but is not an invocation edge', () =>
   assert.equal(callbacks.length, 1);
   assert.equal(callbacks[0].status, 'bound');
   assert.ok(!owned.some(e => e.kind === 'call' && e.targets.includes(callbacks[0].targets[0])));
-  assert.equal(edge('fn').status, 'unresolved');
+  const invoked = edge('fn');
+  assert.equal(invoked.status, 'candidate');
+  assert.deepEqual(invoked.targets, callbacks[0].targets);
+  assert.ok(invoked.evidence.valueOrigins.stops.some(s => s.reason === 'open-callers'));
+  assert.equal(owner(invoked).id, node('register', 'function').id);
 });
 test('computed class method name belongs to the definition context, not the method body', () => {
   assert.equal(owner(edge('classKey')).id, node('Named', 'class').id);
@@ -141,5 +145,5 @@ test('corrected relations keep exact source ranges, file hashes and valid endpoi
   }
 });
 test('analysis metadata distinguishes changed extraction rules from older R1 snapshots', () => {
-  assert.equal(graph.project.analysisRevision, 3);
+  assert.equal(graph.project.analysisRevision, 4);
 });

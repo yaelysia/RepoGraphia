@@ -46,7 +46,18 @@ assert.ok(maps.length>0); assert.ok(maps.every(e=>e.status==='external'&&!e.targ
 const cache=graph.relations.find(e=>e.kind==='construct'&&e.targetLabel==='DesktopDirectoryCache'&&e.evidence.location.file==='electron/desktop-runtime-logs.ts');
 assert.equal(cache?.evidence.reason,'out-of-scope-declaration');
 assert.ok(cache.evidence.declaration.location.file.endsWith('.d.mts'));
-const summary={analysisRevision:graph.project.analysisRevision,snapshot:graph.project.snapshot,sample:'yaelysia/Codex-Monitor',revision,compiler:graph.project.compilerVersion,
+const origins = graph.relations.filter(e=>e.evidence.valueOrigins);
+assert.ok(origins.length>0,'Real sample should retain bounded origin evidence');
+const originCandidates = origins.filter(e=>e.status==='candidate');
+assert.ok(originCandidates.length>0,'Known direct arguments should supply declaration candidates');
+for (const e of origins) {
+  const trace=e.evidence.valueOrigins;
+  assert.equal(trace.complete,false); assert.ok(trace.visited<=trace.limits.maxSteps);
+  assert.ok(trace.sources.every(s=>e.targets.includes(s.target)));
+  assert.ok(e.status!=='bound','Origin inference never upgrades to a bound runtime target');
+}
+const summary={valueOrigins:{examined:origins.length,candidateCallsites:originCandidates.length,
+  stillUnresolved:origins.filter(e=>e.status==='unresolved').length,truncated:origins.filter(e=>e.evidence.valueOrigins.truncated).length},analysisRevision:graph.project.analysisRevision,snapshot:graph.project.snapshot,sample:'yaelysia/Codex-Monitor',revision,compiler:graph.project.compilerVersion,
   files:graph.files.length,symbols:graph.nodes.filter(n=>n.kind!=='file').length,
   explicitCallsites:graph.coverage.syntaxCalls,callsByStatus:graph.coverage.callsByStatus,
   unindexed:graph.coverage.unindexed.length,diagnostics:graph.diagnostics.length,
@@ -60,6 +71,6 @@ fs.writeFileSync(path.join(out,'resolution-summary.json'),JSON.stringify(diagnos
 // Schema-compatibility fixture, not an assertion of older analyzer behavior.
 const legacy={...graph,project:{...graph.project,name:'Legacy-format fixture',analysisRevision:undefined},
   files:graph.files.map(({source,...rest})=>rest),
-  relations:graph.relations.map(e=>({...e,evidence:{...e.evidence,reason:undefined,declaration:undefined}}))};
+  relations:graph.relations.map(e=>({...e,evidence:{...e.evidence,reason:undefined,declaration:undefined,valueOrigins:undefined}}))};
 fs.writeFileSync(path.join(out,'legacy-test.html'),renderHtml(legacy));
 console.log(JSON.stringify(summary,null,2));

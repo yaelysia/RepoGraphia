@@ -3,6 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import type { CodeGraph, CodeNode, Evidence, Relation, RelationKind, Status, UnresolvedReason } from './model.js';
 import { ANALYSIS_REVISION, CALL_KINDS } from './model.js';
+import { createValueOriginTracer } from './value-origins.js';
 import { loadProject, locate, normalize, hash, gitState, isSource, inside, fileKey, isDependency } from './project.js';
 
 const executable = (n: ts.Node): n is ts.FunctionDeclaration | ts.FunctionExpression | ts.ArrowFunction |
@@ -185,6 +186,20 @@ export function analyze(input: string, options: { project?: string; includeSourc
       why: indirect ? 'Callable value is supplied through a parameter/property/assignment. No whole-program value-flow proof.'
         : 'No indexed implementation binding. The diagnostic reason describes syntax/declaration evidence, not a proven runtime target.' };
   }
+  const constructorTarget = (target: ts.Node | undefined): ts.Node | undefined => {
+    if (target && (ts.isClassDeclaration(target) || ts.isClassExpression(target)))
+      return target.members.find(m => ts.isConstructorDeclaration(m) && m.body) ?? target;
+    return target;
+  };
+  const traceOrigins = createValueOriginTracer({
+    sources: p.sources, checker, ids, unwrap, declarations: symbolDeclarations,
+    point: node => ({ location: locate(node, p.root), excerpt: node.getText().slice(0, 240),
+      fileHash: hashes.get(node.getSourceFile().fileName) ?? hash(node.getSourceFile().text) }),
+    directTarget: expr => {
+      const r = resolve(expr);
+      return r.status === 'bound' && r.targets.length === 1 ? constructorTarget(astById.get(r.targets[0]!)) : undefined;
+    },
+  });
   function moduleRelation(owner: string, node: ts.Node, spec: ts.Expression, kind: RelationKind, typeOnly = false) {
     if (!ts.isStringLiteralLike(spec)) {
       add(owner, node, kind, [], 'unresolved', 'dynamic-module', 'Module specifier is not a static string.', spec.getText(), typeOnly); return;
@@ -211,17 +226,31 @@ export function analyze(input: string, options: { project?: string; includeSourc
       if (ts.isTaggedTemplateExpression(node)) { call = node; expr = node.tag; kind = 'tag'; }
       if (call && expr) {
         const result = resolve(expr, checker.getResolvedSignature(call));
-        if (kind === 'construct') {
-          result.targets = result.targets.map(id => {
-            const declaration = astById.get(id);
-            if (declaration && (ts.isClassDeclaration(declaration) || ts.isClassExpression(declaration))) {
-              const ctor = declaration.members.find(member => ts.isConstructorDeclaration(member) && member.body);
-              if (ctor && ids.has(ctor)) return ids.get(ctor)!;
-            }
-            return id;
-          });
+        const origins = result.status === 'unresolved' && (result.reason === 'binding-pattern' || result.reason === 'parameter-value')
+          ? traceOrigins(expr) : undefined;
+        if (origins?.sources.length) {
+          result.targets = [...new Set(origins.sources.map(s => s.target))];
+          result.status = 'candidate'; result.rule = 'bounded-value-origin';
+          result.why = 'Declaration candidates traced through explicit initializers and indexed direct arguments. '
+            + 'This is a bounded, non-exhaustive origin set, not a feasible runtime path or proof of target exclusivity.';
+          delete result.reason;
         }
+        if (kind === 'construct') result.targets = result.targets.map(id => {
+          const target = constructorTarget(astById.get(id));
+          return target && ids.has(target) ? ids.get(target)! : id;
+        });
         const relation = add(owner, call, kind, result.targets, result.status, result.rule, result.why, expr.getText());
+        if (origins) {
+          if (kind === 'construct') for (const source of origins.sources) {
+            const target = constructorTarget(astById.get(source.target));
+            if (target && ids.has(target) && source.target !== ids.get(target)) {
+              source.target = ids.get(target)!;
+              source.path.push({ kind: 'constructor', location: locate(target, p.root),
+                excerpt: target.getText().slice(0, 240), fileHash: hashes.get(target.getSourceFile().fileName)! });
+            }
+          }
+          relation.evidence.valueOrigins = origins;
+        }
         if (result.reason) relation.evidence.reason = result.reason;
         if (result.declaration) relation.evidence.declaration = result.declaration;
         if (ts.isCallExpression(call) && call.expression.kind === ts.SyntaxKind.ImportKeyword) {
@@ -295,7 +324,7 @@ export function analyze(input: string, options: { project?: string; includeSourc
       skippedSymlinks: p.found.symlinks, ignoredDirectories: p.found.ignored,
       syntaxCalls: Object.values(counts).reduce((a, b) => a + b, 0), callsByStatus: counts,
       limitations: ['Static bindings are not runtime proof or a complete call graph.',
-        'No whole-program points-to analysis, reflection, callback invocation inference, or cross-process/IPC/HTTP bridging.',
+        'Bounded direct-argument/initializer origins are not whole-program points-to analysis; no reflection, implicit framework callback invocation, or cross-process/IPC/HTTP bridging.',
         'Function bodies in dependencies and declaration files are outside the index; diagnostics can reduce resolution quality.',
         'Single selected tsconfig; referenced projects require separate analysis. JavaScript follows allowJs in that configuration.',
         'Getters, setters, decorators, implicit coercions and implicit constructor calls are not exhaustively modeled.',

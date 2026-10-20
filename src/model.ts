@@ -1,5 +1,5 @@
 /** Bump when extraction semantics change; this participates in snapshot identity. */
-export const ANALYSIS_REVISION = 3;
+export const ANALYSIS_REVISION = 4;
 
 /** Stable schema; coordinates are 1-based, offsets are UTF-16, end is exclusive. */
 export interface Location {
@@ -16,7 +16,20 @@ export interface CodeNode {
 export type UnresolvedReason = 'parameter-value' | 'binding-pattern' | 'mutable-value' |
   'property-value' | 'returned-callable' | 'out-of-scope-declaration' | 'dynamic-import' |
   'missing-symbol' | 'unmapped-declaration' | 'complex-expression';
+/** Bounded syntactic provenance, not a feasible or exhaustive runtime value set. */
+export interface OriginPoint {
+  location: Location; fileHash: string; excerpt: string;
+}
+export interface ValueOrigins {
+  complete: false;
+  truncated: boolean;
+  visited: number;
+  limits: { maxDepth: number; maxSteps: number; maxSources: number; maxStops: number; maxCallsites: number };
+  sources: { target: string; path: (OriginPoint & { kind: string })[] }[];
+  stops: (OriginPoint & { reason: string })[];
+}
 export interface Evidence {
+  valueOrigins?: ValueOrigins;
   rule: string; explanation: string; location: Location; excerpt: string;
   fileHash: string;
   /** Additive in analysis revision 3; absence in old reports means unclassified. */

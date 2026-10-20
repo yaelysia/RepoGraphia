@@ -80,7 +80,7 @@
     $('list-count').textContent = matches.length; $('more').hidden = matches.length <= page;
     for (const n of matches.slice(0, page)) {
       const row = button('', () => select(n.id), 'node-row' + (selected === n.id ? ' active' : ''));
-      row.title = `${n.name} · ${loc(n.location)}`;
+      row.title = `${n.name} · ${loc(n.location)}`; row.dataset.node = n.id;
       row.append(make('strong', n.kind === 'file' ? n.name.split('/').pop() : n.name),
         make('small', n.kind === 'file' ? n.name : `${n.location.file}:${n.location.line} · ${n.kind}`)); list.append(row);
     }
@@ -147,7 +147,7 @@
     const list = $('edge-list'); list.replaceChildren();
     const edges = related(); $('edge-count').textContent = edges.length + ' 条'; $('more-edges').hidden = edges.length <= edgePage;
     for (const edge of edges.slice(0, edgePage)) {
-      const row = button('', () => showEdge(edge), 'edge-row');
+      const row = button('', () => showEdge(edge), 'edge-row'); row.dataset.relation = edge.id;
       const text = make('div'); text.append(make('strong', `${nodes.get(edge.from)?.name || '?'} → ${edge.targetLabel}`),
         make('small', `${kinds[edge.kind]}${edge.typeOnly ? ' · 仅类型' : ''} · ${loc(edge.evidence.location)}`));
       row.append(text, make('span', names[edge.status], 'badge '+edge.status)); list.append(row);
@@ -197,6 +197,51 @@
     if (offset > 0) detail.append(button('上一页', () => showReason(reason, Math.max(0,offset-25)), 'detail-link diagnostic-prev'));
     if (offset+25 < rows.length) detail.append(button('下一页', () => showReason(reason, offset+25), 'detail-link diagnostic-next'));
   }
+  const originLabels = {
+    reference: '符号引用', initializer: '常量初始化', destructure: '解构取值', property: '显式属性',
+    'array-element': '数组元素', 'property-read': '属性读取', parameter: '形参',
+    'parameter-property': '构造参数属性', 'direct-callsite': '已索引直接传参',
+    'default-argument': '缺省实参', implementation: '候选实现', constructor: '显式构造函数',
+    'open-callers': '不能排除未索引或动态调用方', 'unsupported-caller': '未追踪成员分派或框架回调',
+    'heap-state': '对象变更或迭代器未求解，初始化值仅作候选',
+    'written-value': '参数存在写入，停止传播', 'written-callee': '被调用函数存在重新赋值',
+    'rest-binding': '未展开剩余绑定', 'default-binding': '未求解解构默认值',
+    'spread-source': '来源包含展开表达式', 'spread-arguments': '实参包含展开表达式',
+    'dynamic-key': '未求解动态键', 'getter-result': '未追踪 getter 返回值',
+    'call-result': '未追踪调用返回值', 'mutable-binding': '来源绑定可变',
+    'missing-property': '字面量未提供对应值', 'nonliteral-projection': '来源不是支持的字面量结构',
+    'outside-index': '来源声明不在实现索引内', 'missing-initializer': '没有显式初始化',
+    'missing-argument': '直接调用未提供此实参', 'unknown-value': '来源表达式未受支持',
+    'unavailable-implementation': '实现不可导航', cycle: '递归或循环边界',
+    budget: '达到步数或深度预算', 'caller-budget': '直接调用点数量已截断', 'source-budget': '候选来源数量已截断',
+  };
+  function originPoint(point, edge, text, cls) {
+    const link = button(`${text} · ${loc(point.location)}`, () => {
+      const detail = $('detail'); detail.replaceChildren();
+      detail.append(button('← 返回调用证据', () => showEdge(edge), 'detail-link origin-back'),
+        make('h3', text), make('p', loc(point.location), 'meta'), sourceBlock(point.location, point.excerpt),
+        make('p', '文件 SHA-256: ' + point.fileHash, 'meta'));
+    }, 'detail-link origin-point ' + (cls || ''));
+    link.dataset.file = point.location.file; link.dataset.start = point.location.start;
+    return link;
+  }
+  function showOrigins(edge, detail) {
+    const trace = edge.evidence.valueOrigins;
+    if (!trace) return;
+    detail.append(make('h4', '值来源追踪'), make('div',
+      '仅为有限的声明来源，不是完整运行时目标集合，也不证明整条路径能够实际执行。', 'callout origin-scope'),
+      make('p', `${trace.sources.length} 条来源路径 · ${trace.visited}/${trace.limits.maxSteps} 个探索步骤` +
+        (trace.truncated ? ' · 已截断：详见预算边界' : ' · 未耗尽预算，仍不保证完整'), 'meta origin-budget'));
+    for (const source of trace.sources) {
+      const box = make('details', null, 'origin-source');
+      box.append(make('summary', `${nodes.get(source.target)?.name || source.target} · ${source.path.length} 个依据步骤`));
+      box.append(button('定位候选实体', () => select(source.target), 'detail-link origin-target'));
+      for (const point of source.path) box.append(originPoint(point, edge, originLabels[point.kind] || point.kind));
+      detail.append(box);
+    }
+    if (trace.stops.length) detail.append(make('h4','停止原因 / 未覆盖边界'));
+    for (const point of trace.stops) detail.append(originPoint(point, edge, originLabels[point.reason] || point.reason, 'origin-stop'));
+  }
   function showEdge(edge) {
     const detail = $('detail'); detail.replaceChildren();
     detail.append(make('span',names[edge.status],'badge '+edge.status),make('h3',kinds[edge.kind]),
@@ -217,6 +262,7 @@
     detail.append(make('h4','绑定目标 / 候选声明'));
     for (const target of edge.targets) detail.append(button(nodes.get(target)?.name || target,() => select(target),'detail-link'));
     if (!edge.targets.length) detail.append(make('p','没有可导航的项目内目标。保留边界，不猜测连线。'));
+    showOrigins(edge, detail);
     detail.append(make('h4','来源代码'),make('p',loc(edge.evidence.location),'meta'),sourceBlock(edge.evidence.location,edge.evidence.excerpt),
       make('h4','证据版本'),make('p','文件 SHA-256: '+edge.evidence.fileHash,'meta'),make('p',edge.id,'meta'));
   }
