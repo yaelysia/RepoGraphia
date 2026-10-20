@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import { runAgentCli } from './agent-cli.js';
+import { requireNewDirectory, writeNewBundle } from './output.js';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { analyze } from './analyze.js';
@@ -36,7 +37,8 @@ const help = `RepoGraphia 0.1.0 — evidence-grounded static code explorer
 Feature commands never overwrite existing files; check exits 2 for stale evidence. Semantic labels are proposals, not code facts.
 No target code, build scripts, tests or AI are executed. Dependencies are never auto-installed.
 The report contains source excerpts; --include-source also embeds complete indexed files.
-Output must be outside the analyzed repository. Diagnostics/unindexed regions remain visible.
+Analyze writes a NEW directory outside the repository; existing reports are never overwritten.
+Diagnostics/unindexed regions remain visible. Use a new --out path for each snapshot.
 `;
 if (process.argv[2] === 'agent') process.exitCode = runAgentCli(process.argv.slice(3));
 else try {
@@ -61,14 +63,13 @@ else try {
     while (!fs.existsSync(existing)) existing = path.dirname(existing);
     if (inside(root, path.resolve(fs.realpathSync(existing), path.relative(existing, out))))
       throw new Error('Output must be outside the analyzed repository to keep source read-only');
+    requireNewDirectory(out);
     const started = performance.now();
     const graph = analyze(root, { project: values.project, includeSource: values['include-source'] });
-    fs.mkdirSync(out, { recursive: true });
-    for (const [name, text] of [['graph.json', JSON.stringify(graph, null, 2)], ['index.html', renderHtml(graph, values.features ? JSON.parse(fs.readFileSync(values.features,'utf8')) : undefined)]]) {
-      const destination = path.join(out, name!);
-      if (fs.lstatSync(destination, { throwIfNoEntry: false })?.isSymbolicLink()) throw new Error('Refusing symlink output: ' + destination);
-      fs.writeFileSync(destination, text!, 'utf8');
-    }
+    // Render before creating anything: an invalid sidecar cannot leave a half-new report.
+    const bundle = { 'graph.json': JSON.stringify(graph, null, 2),
+      'index.html': renderHtml(graph, values.features ? JSON.parse(fs.readFileSync(values.features, 'utf8')) : undefined) };
+    writeNewBundle(out, bundle);
     console.log(JSON.stringify({ report: path.join(out, 'index.html'), snapshot: graph.project.snapshot,
       indexedFiles: graph.files.length, symbols: graph.nodes.filter(n => n.kind !== 'file').length,
       calls: graph.coverage.callsByStatus, unindexedFiles: graph.coverage.unindexed.length,

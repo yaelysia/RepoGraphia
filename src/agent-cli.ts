@@ -3,6 +3,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { AGENT_OUTPUT_BYTES, AgentError, createAgentApi } from './agent.js';
 import { renderHtml } from './report.js';
+import { writeNewBundle } from './output.js';
 import type { CodeGraph } from './model.js';
 
 const help = `Agent protocol 1 (JSON output; errors are JSON on stderr)
@@ -58,9 +59,8 @@ export function runAgentCli(argv: string[]): number {
         const bundle: Record<string,string> = { 'proposal.json': JSON.stringify(proposal,null,2),
           'features.json': JSON.stringify(result.features,null,2), 'assessment.json': JSON.stringify(result.assessment,null,2),
           'index.html': renderHtml(graph,result.features), 'receipt.json': JSON.stringify(result.receipt,null,2) };
-        const dest = path.resolve(v.out); fs.mkdirSync(path.dirname(dest),{recursive:true}); fs.mkdirSync(dest);
-        // receipt is deliberately last: no receipt means incomplete output after an I/O failure.
-        for (const [name,content] of Object.entries(bundle)) fs.writeFileSync(path.join(dest,name),content,{encoding:'utf8',flag:'wx'});
+        // receipt remains last: no receipt means incomplete output after an I/O failure.
+        const dest = writeNewBundle(v.out, bundle);
         console.log(JSON.stringify({ok:true,output:dest,report:path.join(dest,'index.html'),receipt:path.join(dest,'receipt.json'),
           addedFeatures:result.receipt.addedFeatures,addedMappings:result.receipt.addedMappings,decision:'proposed',overwroteExisting:false}));
         return 0;
