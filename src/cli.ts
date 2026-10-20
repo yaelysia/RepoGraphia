@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
+import { runAgentCli } from './agent-cli.js';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { analyze } from './analyze.js';
@@ -13,6 +14,8 @@ import type { MapSelection } from './project-map.js';
 import type { CodeGraph, RelationKind, Status } from './model.js';
 
 const help = `RepoGraphia 0.1.0 — evidence-grounded static code explorer
+
+  node dist/cli.js agent --help
 
   node dist/cli.js analyze <repository> --out <report-directory> [--project tsconfig.json] [--include-source]
   node dist/cli.js query <graph.json> search <text>
@@ -35,7 +38,8 @@ No target code, build scripts, tests or AI are executed. Dependencies are never 
 The report contains source excerpts; --include-source also embeds complete indexed files.
 Output must be outside the analyzed repository. Diagnostics/unindexed regions remain visible.
 `;
-try {
+if (process.argv[2] === 'agent') process.exitCode = runAgentCli(process.argv.slice(3));
+else try {
   const { positionals: args, values } = parseArgs({ allowPositionals: true, options: {
     features: { type: 'string' }, patch: { type: 'string' }, author: { type: 'string' },
     'actor-kind': { type: 'string' }, 'expected-revision': { type: 'string' },
