@@ -44,7 +44,7 @@ Every unresolved explicit call/new/tag record carries `evidence.reason`. The fin
 
 `src/diagnostics.ts` derives summaries and bounded reason pages from actual relations, not cached counts. The HTML embeds this same summary and navigates to original evidence by relation ID. Non-call module/callback/JSX/heritage records do not enter the explicit-call denominator. Counts include test paths; examples prefer non-test paths by an explicit filename rule, not inferred production importance. Missing or unfamiliar reason codes in old graphs stay unclassified. Paging retains total/offset/limit/nextOffset and source evidence.
 
-CI runs the pinned rule-3 analyzer against the same sample directory and dependency installation as the current analyzer. `compare-resolution.mjs` requires identical indexed source hashes, compiler version and explicit callsite coordinates before reporting status transitions. Snapshot-local node/edge IDs are not compared across revisions. This is a controlled regression comparison, not a measurement of precision or recall; external reclassification does not constitute a new project implementation target.
+During rule-4 development, CI ran the pinned rule-3 analyzer against the same sample directory and dependency installation as the current analyzer. The project-map stage instead pins CP9 (rule 4) and requires unchanged extracted graph contents. `compare-resolution.mjs` requires identical indexed source hashes, compiler version and explicit callsite coordinates before reporting status transitions. Snapshot-local node/edge IDs are not compared across revisions. This is a controlled regression comparison, not a measurement of precision or recall; external reclassification does not constitute a new project implementation target.
 
 ## Bounded value origins (revision 4)
 
@@ -66,9 +66,19 @@ Default traversal admits only statically bound explicit call kinds. Candidates a
 
 For an incoming query, filtered candidate callers are disclosed just as outgoing unknowns are. An empty result is absence of evidence under the selected rules, not evidence of runtime absence. Multi-hop static reachability is not proof that the full path is feasible in one execution.
 
+## Project-level projection (revision 1)
+
+`src/project-map.ts` exports a self-contained pure factory shared by the CLI and offline browser bundle. It groups actual repository-relative paths into direct directory children; directory names do not imply business responsibilities. The projection retains the original snapshot and does not change the analysis revision or CodeGraph. See [project-map.md](project-map.md) for the interaction and API contract.
+
+Directed child-pair links count each original relation ID once per pair, with kind/status/typeOnly breakdowns. Multiple candidate endpoints in one group do not inflate the count; a relation can still belong to multiple pairs or boundary categories. Internal, outside-scope, targetless, missing-endpoint and hidden-test-target evidence remains separately queryable. Empty and unindexed regions are retained without fabricated code or cross-language edges.
+
+Canvas budgets default to 12 nodes and 24 links; the UI can expand to 60/240. Separately paginated navigation/list caps and all omissions are disclosed. Aggregate evidence pages retain full original relations and return navigation. CLI and HTML use the exact compiled factory rather than independently implemented classifiers.
+
+Validation includes 28 independently specified graph/CLI cases, four hand-labelled source-to-directory-matrix cases, and independent Python membership checks on the pinned real sample. CI compares files, nodes, relations, coverage and diagnostics against CP9 for exact equality. Compiler-input paths may differ between analyzer checkouts, so cross-checkout snapshot strings need not match; every projection must match its own input snapshot. This does not establish whole-repository precision or recall.
+
 ## Presentation and privacy
 
-Reports are single-file, offline snapshots with a bounded one-hop SVG view. Each side shows at most seven distinct neighboring targets and the complete matching relation list is separately paginated. A displayed connection can stand for the first of several records; the UI explicitly states this aggregation. Large source excerpts are bounded; embedded full files are optional.
+Reports are single-file offline snapshots, opening at the project directory map. Drilling into a file enters the existing bounded one-hop SVG view. Each side shows at most seven distinct neighboring targets and the complete matching relation list is separately paginated. A displayed connection can stand for the first of several records; the UI explicitly states this aggregation. Large source excerpts are bounded; embedded full files are optional.
 
 The renderer uses textContent for repository-derived text; JSON escapes script delimiters and a SHA-256 CSP authorizes only the bundled viewer. Reports include code and should be handled accordingly. There is no remote telemetry or executable target-code preview.
 

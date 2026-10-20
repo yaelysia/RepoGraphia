@@ -13,10 +13,11 @@
 - **源码索引**：文件、函数、类、接口、方法、显式构造函数、匿名回调及它们的包含关系。
 - **语义绑定**：使用 TypeScript Compiler API，处理跨文件导入、再导出、别名、词法遮蔽和重载实现。调用、继承、类型导入、JSX 引用、回调传入分别记录。
 - **证据审阅**：每条关系附源码坐标、解析规则、原始片段和文件 SHA-256；未知目标不强行连线。
-- **交互探索**：文件/符号导航、搜索、一跳关系图、状态筛选、节点/连线审阅、父子实体跳转、测试路径开关和缩放。
+- **项目地图**：默认从目录整体结构开始，逐层进入目录、文件、函数和源码；有向聚合连接保留关系类型、候选状态及原始证据。
+- **局部探索**：文件/符号导航、搜索、一跳关系图、状态筛选、节点/连线审阅、父子实体跳转、测试路径开关和缩放。
 - **程序查询**：搜索、调用方/被调用方查询、限定深度的子图，明确返回候选边、未知边和截断边界。
 
-这是可运行的 **R1 静态探索版本**。当前没有功能语义归纳、增量监控、跨语言完整分析、动态追踪或 Agent 任务调度。
+这是可运行的 **静态代码探索与项目地图版本**。当前没有功能语义归纳、增量监控、跨语言完整分析、动态追踪或 Agent 任务调度。
 
 ## 安装与运行
 
@@ -83,7 +84,7 @@ node dist/cli.js query reports/codex-monitor/graph.json diagnostics parameter-va
 
 诊断概览复用 `src/diagnostics.ts`，示例每组最多 3 条；完整分类查询返回 `total`、原始关系证据和 `boundary.nextOffset`。老报告没有结构化原因时列为 `unclassified`，不从旧解释或名称反推新结论。规则 3 仍是可加字段的 schema v1，需要重新分析才能获得新结果。
 
-本轮增加 35 项回归。CI 在**同一个固定样本及类型依赖目录**中运行当前工具和固定的规则 2 工具，检查源码哈希、调用点坐标集合均不变，再生成 `resolution-comparison.json`。把未知改为外部边界，与新增候选实现分开统计；不能通过删除调用点美化解析数量。具体受测版本和结果见检查点。
+规则 3 阶段增加 35 项回归。当时 CI 在**同一个固定样本及类型依赖目录**中运行当前工具和固定的规则 2 工具，检查源码哈希、调用点坐标集合均不变，再生成 `resolution-comparison.json`。把未知改为外部边界，与新增候选实现分开统计；不能通过删除调用点美化解析数量。具体受测版本和结果见检查点。
 
 ## 有限值来源追踪（分析规则 4）
 
@@ -95,19 +96,26 @@ node dist/cli.js query reports/codex-monitor/graph.json diagnostics parameter-va
 
 每次追踪最多 12 层、64 个探索步骤、16 条来源路径、16 个停止位置；每个函数最多采纳 16 个直接调用点。超过预算显式设置 `truncated=true`，不隐藏截断。`evidence.valueOrigins.complete` 固定为 `false`：即使预算未耗尽，也不承诺调用方全集、对象状态、时序或路径可行性。解构默认值和 rest 暂停分析；普通参数默认值仅在已索引调用确实省略该实参时提供条件来源。
 
-来源证据随既有 `callers/callees` 查询返回；默认查询仍不遍历候选，显式指定 `--include-candidates` 才纳入。旧报告没有来源字段时不反推补齐。CI 以固定规则 3 为对照，使用同一源码/类型依赖并核对全部显式调用点。
+来源证据随既有 `callers/callees` 查询返回；默认查询仍不遍历候选，显式指定 `--include-candidates` 才纳入。旧报告没有来源字段时不反推补齐。规则 4 阶段 CI 以固定规则 3 为对照，使用同一源码/类型依赖并核对全部显式调用点。项目地图阶段则以 CP9（规则 4）为对照，要求文件、节点、关系、范围和诊断全部不变。
 
 ## 交互页面
 
-左侧从文件切换到函数/类，点击节点进入局部关系图；点击连线或下方关系记录，右侧展示具体依据。文件视图会聚合该文件内实体的关系，函数视图保留函数级归属。
+新报告默认打开项目地图。选择目录节点后点击“进入目录”，逐层定位到文件，再打开已有函数与源码视图；“返回项目地图”保留上次目录位置。点击跨目录连接可分页审阅原始关系，每页 25 条；组内、范围外、无目标和未索引区域都有独立入口。目录名称只代表真实路径，不是 AI 归纳的业务功能。
 
-默认隐藏按路径识别的测试文件；顶部统计仍覆盖整个选定程序。图中每侧最多展示 7 个邻接目标，同目标连线显示首条匹配记录；完整匹配记录在下方分页展示。界面始终标出图的截断情况，避免误认为屏幕上的几条线就是所有关系。
+画布默认最多 12 个子级节点、24 条聚合连接，支持增加预算；超限会明确显示，仍可通过左侧和下方列表继续探索。浏览器与 CLI 使用同一份纯投影逻辑，不修改原始代码图。完整解释与边界见 [项目地图说明](docs/project-map.md)。
+
+在局部探索视图中，左侧从文件切换到函数/类，点击节点进入局部关系图；点击连线或下方关系记录，右侧展示具体依据。文件视图会聚合该文件内实体的关系，函数视图保留函数级归属。
+
+默认隐藏按路径识别的测试文件；顶部统计仍覆盖整个选定程序。局部图中每侧最多展示 7 个邻接目标，同目标连线显示首条匹配记录；完整匹配记录在下方分页展示。界面始终标出图的截断情况，避免误认为屏幕上的几条线就是所有关系。
 
 “分析边界”列出未索引源码、忽略目录、符号链接、编译诊断及当前分析能力限制。诊断列表最多展示前 100 条，完整数据保留在 JSON 中。
 
 ## 给程序和 Agent 使用
 
 ```sh
+node dist/cli.js query reports/codex-monitor/graph.json map
+node dist/cli.js query reports/codex-monitor/graph.json map src --kind import
+node dist/cli.js query reports/codex-monitor/graph.json map-records . --from electron --to src --limit 25
 node dist/cli.js query reports/codex-monitor/graph.json search scanLocal
 node dist/cli.js query reports/codex-monitor/graph.json callees scanLocal --depth 2
 node dist/cli.js query reports/codex-monitor/graph.json callers scanLocal --include-candidates
@@ -159,6 +167,7 @@ src/model.ts    JSON 数据模型
 src/value-origins.ts 有界解构/直接实参来源与停止证据
 src/query.ts    有界关系查询
 src/diagnostics.ts 未解析原因汇总和分页证据
+src/project-map.ts 共享目录投影、类型聚合与证据分页
 src/report.ts  安全的离线报告生成
 src/cli.ts     命令行入口
 viewer/        无外部资源的 HTML/CSS/JS 审阅界面
@@ -166,4 +175,4 @@ tests/         分析准确性与边界回归
 scripts/       固定真实样本和浏览器验证
 ```
 
-后续优先补充可验证的静态分析规则和评测，再引入功能映射、变更定位与 Agent 任务视图。详细约束见 [架构说明](docs/architecture.md)；开发约定见 [AGENTS.md](AGENTS.md)。
+项目地图已具备从整体到源码的审阅链路。后续先验证功能与代码映射的证据模型，同时继续补充独立静态评测，再引入功能归纳、变更定位与 Agent 任务视图。详细约束见 [架构说明](docs/architecture.md)；开发约定见 [AGENTS.md](AGENTS.md)。
