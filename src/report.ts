@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import type { CodeGraph } from './model.js';
+import { createProjectMapApi } from './project-map.js';
 import { resolutionSummary } from './diagnostics.js';
 
 /** Prevent repository text from breaking out of a non-executable JSON script. */
@@ -9,8 +10,11 @@ export function safeJson(value: unknown): string {
     char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0'));
 }
 export function renderHtml(graph: CodeGraph): string {
-  const css = fs.readFileSync(new URL('../viewer/style.css', import.meta.url), 'utf8');
-  const script = fs.readFileSync(new URL('../viewer/app.js', import.meta.url), 'utf8');
+  const css = ['style.css', 'project-map.css'].map(name =>
+    fs.readFileSync(new URL('../viewer/' + name, import.meta.url), 'utf8')).join('\n');
+  const ui = fs.readFileSync(new URL('../viewer/project-map-view.js', import.meta.url), 'utf8');
+  const app = fs.readFileSync(new URL('../viewer/app.js', import.meta.url), 'utf8');
+  const script = `(() => { const ProjectMap = (${createProjectMapApi.toString()})();\n${ui}\n${app}\n})();`;
   const template = fs.readFileSync(new URL('../viewer/body.html', import.meta.url), 'utf8');
   const digest = createHash('sha256').update(script).digest('base64');
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

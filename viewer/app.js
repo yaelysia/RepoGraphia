@@ -10,6 +10,7 @@
   const colors = { bound: '#91b9fc', candidate: '#dfb772', unresolved: '#ee929e', external: '#8b97ac' };
   const nodes = new Map(graph.nodes.map(n => [n.id, n]));
   const files = new Map(graph.files.map(f => [f.path, f]));
+  let projectView;
   let tab = 'files', selected = null, page = 60, edgePage = 50, zoom = 1;
   const make = (tag, text, cls) => { const el = document.createElement(tag); if (text != null) el.textContent = text; if (cls) el.className = cls; return el; };
   const button = (text, action, cls) => { const b = make('button', text, cls); b.onclick = action; return b; };
@@ -40,17 +41,21 @@
   $('nav-footer').textContent = `${graph.coverage.unindexed.length} 个源码文件未索引 · ${graph.diagnostics.length} 条编译诊断。查看「分析边界」了解范围。`;
   function setTab(next) {
     tab = next; page = 60;
-    for (const t of ['files','symbols','gaps']) $(t + '-tab').classList.toggle('active', tab === t);
+    for (const t of ['project','files','symbols','gaps']) $(t + '-tab').classList.toggle('active', tab === t);
+    if (tab === 'project') projectView.enter();
+    else if (tab !== 'gaps') { projectView.leave(); renderMap(); renderEdges(); }
     renderList();
   }
   function select(id) {
     if (!nodes.has(id)) return;
+    if (projectView?.active) { projectView.leave(); tab='files'; for(const t of ['project','files','symbols','gaps']) $(t+'-tab').classList.toggle('active',t===tab); }
     selected = id; edgePage = 50; zoom = 1;
     renderList(); renderMap(); renderEdges(); showNode(nodes.get(id));
   }
   function renderList() {
     const list = $('node-list'); list.replaceChildren();
     const search = $('search').value.trim().toLowerCase();
+    if (tab === 'project') { projectView.renderList(search,page); return; }
     if (tab === 'gaps') {
       $('list-count').textContent = ''; $('more').hidden = true;
       if (resolution) {
@@ -244,6 +249,7 @@
   }
   function showEdge(edge) {
     const detail = $('detail'); detail.replaceChildren();
+    if(projectView?.active) detail.append(projectView.backButton());
     detail.append(make('span',names[edge.status],'badge '+edge.status),make('h3',kinds[edge.kind]),
       make('p',edge.targetLabel),make('h4','解析依据 / RULE'),make('p',edge.evidence.rule,'meta'),make('p',edge.evidence.explanation));
     detail.append(make('div',edge.kind==='callback' ? '这里只证明函数作为参数传入，不证明发生了调用。' :
@@ -269,12 +275,12 @@
   function applyZoom() {
     const w=1000/zoom,h=650/zoom; $('map').setAttribute('viewBox',`${500-w/2} ${325-h/2} ${w} ${h}`);
   }
-  $('show-tests').onchange = () => { page=60; renderList(); renderMap(); renderEdges(); };
-  for (const tabName of ['files','symbols','gaps']) $(tabName+'-tab').onclick = () => setTab(tabName);
+  $('show-tests').onchange = () => { page=60; if(projectView.active) projectView.refresh(); else {renderMap();renderEdges();} renderList(); };
+  for (const tabName of ['project','files','symbols','gaps']) $(tabName+'-tab').onclick = () => setTab(tabName);
   $('search').oninput = () => { page=60; renderList(); };
   $('more').onclick = () => { page+=60; renderList(); };
   $('more-edges').onclick = () => { edgePage+=50; renderEdges(); };
-  for (const id of ['kind','status']) $(id).onchange = () => { edgePage=50; renderMap(); renderEdges(); };
+  for (const id of ['kind','status']) $(id).onchange = () => { edgePage=50; if(projectView.active) {projectView.refresh();renderList();} else {renderMap();renderEdges();} };
   $('zoom-in').onclick = () => { zoom=Math.min(2.5,zoom*1.2); applyZoom(); };
   $('zoom-out').onclick = () => { zoom=Math.max(.5,zoom/1.2); applyZoom(); };
   $('fit').onclick = () => { zoom=1; applyZoom(); };
@@ -282,5 +288,9 @@
   const degree = new Map();
   for (const edge of graph.relations) { const f=fileNode(edge.from); degree.set(f,(degree.get(f)||0)+1); }
   const first = graph.nodes.filter(n=>n.kind==='file' && visible(n)).sort((a,b)=>(degree.get(b.id)||0)-(degree.get(a.id)||0))[0];
+  projectView = createProjectMapView({ graph, api:ProjectMap, make, button, svgEl,
+    onFile:id=>select(id), onEvidence:edge=>showEdge(edge), onNavigation:()=>{page=60;renderList();} });
+  $('return-project').onclick=()=>setTab('project');
   if (first) select(first.id); else { renderList(); renderMap(); }
+  setTab('project');
 })();
