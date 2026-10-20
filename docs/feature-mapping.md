@@ -1,0 +1,72 @@
+# 功能与代码映射（第一版，CP14）
+
+本层是 CodeGraph 之上的**可审阅语义标注**，不是静态分析器自动证明的业务功能。没有模型调用，不会根据目录名、共同依赖或函数名称自动建立功能。`examples/codex-monitor-feature-plan.json` 是助手编写的三个有限提案，全部 actorKind=agent、decision=proposed；不是用户确认、全仓库功能识别或业务测试结果。
+
+## 数据与正确性边界
+
+`FeatureMap schemaVersion=1` 独立保存为 JSON sidecar，不写入目标项目，也不改变 CodeGraph schema/分析规则 4/项目投影版本 1。
+
+- features：稳定的标注 ID、名称、说明和待确认问题。ID 由标注作者维护，不等于跨源码编辑稳定的代码 ID。
+- mappings：多对多功能/代码关联，角色为 entry、implementation、support、test。test 只表示映射到测试代码，不表示执行过测试。每条映射必须有自己的理由及精确代码锚点；关系证据可选，缺少时明确显示“仅声明证据”。
+- code：实体 ID、文件、文件 SHA-256、UTF-16 起止偏移、类型及名字。文件级映射不自动分配给文件内全部函数，不沿调用图扩散。
+- evidence：显式关系 ID、坐标/文件哈希、from/targets、kind/status/typeOnly/rule。原关系必须触及对应代码实体（文件锚点允许该文件内端点），不接受无关关系来充当依据。类型/导入/回调不会被改称调用；candidate、unknown、external 与值来源不完整/截断均保留。
+- basis：原始分析 snapshot、analysisRevision、compilerVersion、config。**第一版严格绑定整个快照**；任一变化都使旧映射失效，即使目标文件没有改变。没有增量失效、自动重锚或同名匹配。生成时间改变不失效。旧报告规则版本缺失时不得推定为当前规则。
+- decision：proposed / accepted / rejected，与 current/失效完全分离。accepted 是作者申报的人工选择，不代表功能语义被程序证明，更不将候选调用变成 bound。导入文件、作者身份和历史均不提供认证、签名或防篡改保证。
+
+系统校验的是**引用一致性**而不是语义真实性；`current=true` 不表示已经独立审计了上传图数据。更换或伪造整份图/标注不能靠该字段获得“证明”。共享代码不会制造功能间依赖边。无映射功能和待确认问题继续显示。
+
+## 编辑与版本
+
+`createFeatureMapApi()` 是 CLI 和浏览器共用的纯工厂，提供 create、validate、assess、forNode、edit。edit 需要 expectedRevision、actor、actorKind、at、reason，返回新对象，不修改输入。允许创建/修改功能、显式新增/替换代码关联、接受/拒绝/退回待审。
+
+修改映射目标、理由或角色后决策重置为 proposed。修改功能含义会将关联的 accepted 映射全部退回 proposed（rejected 保留），避免把旧接受挪用给新含义。每次修改 revision+1，并保存操作、主体和前后值；历史仅是本地可读记录。agent 不能通过 edit 自行 accepted；人工与 agent 标签均为自述而非安全权限边界。
+
+拒绝不会删除记录，但会从当前代码反向映射排除。过期映射保留旧理由、锚点、审阅状态和失效原因，禁止接受或打开当前同名源码；也不允许在过期 basis 内偷偷加入新锚点。需要在新图上显式创建并重新标注，迁移向导留待后续。
+
+文档最多 1000 个功能、10000 个映射/编辑记录、每映射 100 条关系证据，验证序列化长度限 5 MiB 字符；浏览器导入另外限制 5 MiB 文件。概览展示前 100 个功能，左侧可搜索其余；映射按 25 条展开。所有预算是产品边界，不是业务覆盖率。
+
+## 浏览器
+
+“功能映射”页和现有项目/文件/函数页并存。选择功能 → 选择映射 → 查看原关系或源码；源码检查器提供当前显式功能的反向入口。支持新建/修改功能说明与问题、从代码添加关联、接受/拒绝映射、JSON 导入/导出。
+
+编辑必须填写自述编辑者及理由。**页面修改只在内存中**；导出请求不等于文件已保存，更不会写回原 HTML/Git。需要保留导出的 JSON，下次重新导入或用 CLI 重新渲染。导入替换未导出草稿需要确认；错误导入保留原草稿。页面内添加代码关联只附声明证据，指定关系证据使用 CLI 的 mapping 操作。
+
+## CLI
+
+从已经生成的同一个 graph.json 开始，可避免重复扫描后误混快照：
+
+```sh
+node dist/cli.js features init reports/codex-monitor/graph.json --out features.json
+node dist/cli.js features check reports/codex-monitor/graph.json features.json
+node dist/cli.js features render reports/codex-monitor/graph.json features.json --out feature-report.html
+```
+
+check 对失效映射返回退出码 2，对格式错误返回 1；render 允许显示失效标注但禁止错误导航。features 写命令仅写用户指定的**新文件**，以 wx 拒绝覆盖已有文件（含软/硬链接）；请将标注和报告放在目标源码目录外。它们不需要也不会访问原项目工作区。
+
+创建或改名功能的 edit.json：
+
+```json
+{"reason":"定义需要审阅的功能范围","operation":{"op":"feature","feature":{"id":"collection","title":"会话采集","description":"有限范围的初始提案","questions":["远程链路尚未标注"]}}}
+```
+
+```sh
+node dist/cli.js features edit graph.json features.json --patch edit.json --expected-revision 0 --author reviewer --actor-kind manual --out features-r1.json
+```
+
+显式关联使用同一命令，operation 改为：
+
+```json
+{"op":"mapping","id":"collection-entry","featureId":"collection","nodeId":"从 graph.json 搜索结果复制准确 ID","role":"entry","rationale":"说明为何该实体支撑此功能","relationIds":[]}
+```
+
+评审 operation 为 `{"op":"review","id":"collection-entry","decision":"accepted"}`。更换当前关系目标时复用 mapping ID 并提供新 nodeId/role/rationale/relationIds，保留修改前记录。expectedRevision 必须匹配当前标注文档，不可拿图的 schemaVersion 代替。
+
+普通 analyze 也可提供 `--features features.json`；与新扫描结果不匹配时不会自动迁移标注。没有提供 sidecar 的报告功能页为空，绝不复用上一次浏览器编辑。
+
+## 验收
+
+固定样本只做 3 个 agent 提案、6 条映射、4 个不同代码实体；2 个实体分别被两个功能共享。`sourceResult → scan` 的候选来源用于检验“不确定性向上传递”，不是为演示新增绑定。另一报告将 snapshot 改为不匹配值，只作为失效测试，不替换原图。
+
+单元正反例与浏览器测试校验多对多、无映射、拒绝/过期排除、规则/编译器/源码/实体/关系失效、编辑版本冲突、含义修改退回待审、导入失败保护、导出重导入、脚本注入防护。既有静态提取及目录投影继续运行完整回归和同输入对照。
+
+后续再评估功能分组、细粒度失效/迁移、可选 AI 提案和更多独立语义标注，不将当前样例称作自动功能地图。

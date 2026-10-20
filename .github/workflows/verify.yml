@@ -21,6 +21,7 @@ jobs:
       - run: npm test
       - run: node --check viewer/app.js
       - run: node --check viewer/project-map-view.js
+      - run: node --check viewer/feature-map-view.js
       - name: Archive the exact tested source (no credentials or working files)
         if: runner.os == 'Linux'
         run: git archive --format=tar --output="$RUNNER_TEMP/repographia-source.tar" HEAD
@@ -45,7 +46,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
-          ref: 3e70ed49d3e79414d7274f824552a3883661b6f8
+          ref: a64c67bb7e111a2a8c2e2f1f7a30677e2a1051ea
           path: baseline-tool
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -71,6 +72,8 @@ jobs:
         working-directory: tool
       - run: node scripts/verify-project-map.mjs ../reports/baseline/graph.json ../reports/codex-monitor/graph.json ../reports/codex-monitor/project-map.json
         working-directory: tool
+      - run: node scripts/verify-feature-map.mjs ../reports/codex-monitor
+        working-directory: tool
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -78,6 +81,7 @@ jobs:
       - run: python -m playwright install --with-deps chromium
       - run: python tool/scripts/check-viewer.py reports/codex-monitor/index.html --legacy-report reports/codex-monitor/legacy-test.html --output reports/codex-monitor/preview.png
       - run: python tool/scripts/check-project-map.py reports/codex-monitor/index.html --output reports/codex-monitor/preview.png
+      - run: python tool/scripts/check-feature-map.py reports/codex-monitor
       - uses: actions/upload-artifact@v4
         with:
           name: codex-monitor-report

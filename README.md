@@ -168,6 +168,8 @@ src/value-origins.ts 有界解构/直接实参来源与停止证据
 src/query.ts    有界关系查询
 src/diagnostics.ts 未解析原因汇总和分页证据
 src/project-map.ts 共享目录投影、类型聚合与证据分页
+src/feature-map.ts 功能/代码标注、引用校验与版本化修正
+src/feature-cli.ts 标注创建、检查、修正和报告输出
 src/report.ts  安全的离线报告生成
 src/cli.ts     命令行入口
 viewer/        无外部资源的 HTML/CSS/JS 审阅界面
@@ -175,4 +177,18 @@ tests/         分析准确性与边界回归
 scripts/       固定真实样本和浏览器验证
 ```
 
-项目地图已具备从整体到源码的审阅链路。后续先验证功能与代码映射的证据模型，同时继续补充独立静态评测，再引入功能归纳、变更定位与 Agent 任务视图。详细约束见 [架构说明](docs/architecture.md)；开发约定见 [AGENTS.md](AGENTS.md)。
+项目地图已具备从整体到源码的审阅链路，功能与代码的显式映射和人工修正也已具备第一版。后续先完善标注审阅与跨快照迁移，再引入可选功能归纳、变更定位与 Agent 任务视图。详细约束见 [架构说明](docs/architecture.md)；开发约定见 [AGENTS.md](AGENTS.md)。
+
+## 功能与代码映射（试验版）
+
+现在可以在独立 JSON sidecar 中维护功能提案与代码的多对多关联，并在“功能映射”页沿着代码锚点查看原关系、源码和值来源。共享代码不会自动形成业务依赖。人工接受/拒绝与证据是否过期分别显示；候选和未知关系不会因接受而升级。
+
+页面支持新建/修正功能、代码反向关联、人工评审、导入和导出；**编辑只是内存草稿，需导出 JSON 保存**，不会写回源码或原 HTML。没有 sidecar 时功能页为空。当前 Codex-Monitor 示例是助手编写的三个有限提案，不是自动识别或用户确认。
+
+```sh
+node dist/cli.js features init reports/codex-monitor/graph.json --out features.json
+node dist/cli.js features check reports/codex-monitor/graph.json features.json
+node dist/cli.js features render reports/codex-monitor/graph.json features.json --out feature-report.html
+```
+
+新命令拒绝覆盖已有文件。快照/规则/源码/锚点变化后，旧映射明确失效，禁止同名自动重绑定。数据语义、编辑命令及失效限制见 [功能映射说明](docs/feature-mapping.md)。

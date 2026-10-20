@@ -8,6 +8,7 @@ import { findNode, neighborhood } from './query.js';
 import { inside } from './project.js';
 import { resolutionSummary, diagnosticRecords } from './diagnostics.js';
 import { createProjectMapApi } from './project-map.js';
+import { runFeatureCli } from './feature-cli.js';
 import type { MapSelection } from './project-map.js';
 import type { CodeGraph, RelationKind, Status } from './model.js';
 
@@ -21,12 +22,20 @@ const help = `RepoGraphia 0.1.0 — evidence-grounded static code explorer
   node dist/cli.js query <graph.json> map [directory] [--show-tests] [--kind call|import|all] [--status candidate|all] [--max-nodes 12] [--max-links 24]
   node dist/cli.js query <graph.json> map-records [directory] [--group path | --from path --to path] [--category outside|internal|all] [--offset 0] [--limit 25]
 
+  node dist/cli.js features init <graph.json> --out <new-features.json>
+  node dist/cli.js features check <graph.json> <features.json>
+  node dist/cli.js features render <graph.json> <features.json> --out <new-report.html>
+  node dist/cli.js features edit <graph.json> <features.json> --patch <edit.json> --expected-revision <n> --author <name> --actor-kind manual|agent --out <new-features.json>
+
+Feature commands never overwrite existing files; check exits 2 for stale evidence. Semantic labels are proposals, not code facts.
 No target code, build scripts, tests or AI are executed. Dependencies are never auto-installed.
 The report contains source excerpts; --include-source also embeds complete indexed files.
 Output must be outside the analyzed repository. Diagnostics/unindexed regions remain visible.
 `;
 try {
   const { positionals: args, values } = parseArgs({ allowPositionals: true, options: {
+    features: { type: 'string' }, patch: { type: 'string' }, author: { type: 'string' },
+    'actor-kind': { type: 'string' }, 'expected-revision': { type: 'string' },
     out: { type: 'string' }, project: { type: 'string' }, depth: { type: 'string' },
     offset: { type: 'string' }, limit: { type: 'string' },
     kind: { type: 'string' }, status: { type: 'string' }, group: { type: 'string' },
@@ -36,6 +45,7 @@ try {
     help: { type: 'boolean', short: 'h' },
   } });
   if (values.help || !args.length) console.log(help);
+  else if (args[0] === 'features') process.exitCode = runFeatureCli(args.slice(1), values);
   else if (args[0] === 'analyze') {
     if (!args[1] || !values.out || args.length !== 2) throw new Error('analyze requires one repository and --out directory');
     const root = fs.realpathSync(path.resolve(args[1])), out = path.resolve(values.out);
@@ -47,7 +57,7 @@ try {
     const started = performance.now();
     const graph = analyze(root, { project: values.project, includeSource: values['include-source'] });
     fs.mkdirSync(out, { recursive: true });
-    for (const [name, text] of [['graph.json', JSON.stringify(graph, null, 2)], ['index.html', renderHtml(graph)]]) {
+    for (const [name, text] of [['graph.json', JSON.stringify(graph, null, 2)], ['index.html', renderHtml(graph, values.features ? JSON.parse(fs.readFileSync(values.features,'utf8')) : undefined)]]) {
       const destination = path.join(out, name!);
       if (fs.lstatSync(destination, { throwIfNoEntry: false })?.isSymbolicLink()) throw new Error('Refusing symlink output: ' + destination);
       fs.writeFileSync(destination, text!, 'utf8');
