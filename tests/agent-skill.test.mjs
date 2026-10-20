@@ -6,7 +6,12 @@ import path from 'node:path';
 // Format/routing lint is not a measurement of real skill-trigger behavior.
 test('Skill has bounded routing metadata and complete relative references',()=>{
  const root='skills/repographia-function-map',skill=fs.readFileSync(path.join(root,'SKILL.md'),'utf8');
- assert.match(skill,/^---\nname: repographia-function-map\ndescription: .+/);
+ const header=/^---\r?\nname: repographia-function-map\r?\ndescription: [^\r\n]+/;
+ assert.match(skill,header);
+ const lf=skill.replace(/\r\n/g,'\n');
+ assert.match(lf,header);assert.match(lf.replace(/\n/g,'\r\n'),header);
+ assert.ok(!header.test(lf.replace('name: repographia-function-map','name: another-skill')));
+ assert.ok(!header.test(lf.replace('description: ', 'wrong-field: ')));
  assert.match(skill,/version: "1.1"/);assert.ok(skill.split('\n').length<500);
  for(const [,ref] of skill.matchAll(/\]\((references\/[^)]+)\)/g)) assert.ok(fs.existsSync(path.join(root,ref)));
  for(const required of ['claim table','counterexample','TRIAL.md','not independent','nextOffset','agent submit'])
