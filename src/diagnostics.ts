@@ -3,8 +3,8 @@ import { CALL_KINDS } from './model.js';
 
 /** Categories describe available evidence, not runtime failures or guaranteed fixes. */
 export const REASONS: Record<UnresolvedReason | 'unclassified', { title: string; explanation: string }> = {
-  'parameter-value': { title: '参数传入的函数', explanation: '调用值来自函数参数；未做跨调用点参数值传播。' },
-  'binding-pattern': { title: '解构得到的函数值', explanation: '编译器绑定到解构声明；未推断返回元组或对象的实际函数值。' },
+  'parameter-value': { title: '参数传入的函数', explanation: '调用值来自函数参数；当前证据未提供可导航的实现目标。若附值来源追踪，请查看停止原因与预算边界。' },
+  'binding-pattern': { title: '解构得到的函数值', explanation: '编译器绑定到解构声明；当前证据未提供可导航的实现目标。不能仅凭返回类型推断函数值；若附来源追踪，请查看停止原因。' },
   'mutable-value': { title: '可变变量或其别名', explanation: '声明允许重新赋值；不能把初始化值当作该调用点的实际目标。' },
   'property-value': { title: '属性中的未知函数值', explanation: '只有属性声明或类型，没有可导航的函数初始化体；不按同名函数猜测。' },
   'returned-callable': { title: '调用或访问器返回的函数', explanation: '值来自调用、await 或 getter；返回值传播尚未实现，不把生产者当作被调用函数。' },
