@@ -22,6 +22,7 @@ jobs:
       - run: node --check viewer/app.js
       - run: node --check viewer/project-map-view.js
       - run: node --check viewer/feature-map-view.js
+      - run: node --check viewer/feature-scene-view.js
       - run: node --check viewer/feature-migration-view.js
       - uses: actions/setup-python@v5
         with:
@@ -30,10 +31,14 @@ jobs:
       - run: python -m playwright install --with-deps chromium
       - run: node tests/helpers/report-line-endings.mjs reports/startup
       - run: python scripts/check-report-startup.py reports/startup
+      - run: node tests/helpers/feature-scene.mjs reports/feature-scene
+      - run: python scripts/check-feature-scene.py reports/feature-scene
       - uses: actions/upload-artifact@v4
         with:
           name: report-startup-${{ runner.os }}
-          path: reports/startup
+          path: |
+            reports/startup
+            reports/feature-scene
           retention-days: 7
           if-no-files-found: error
       - name: Archive the exact tested source (no credentials or working files)

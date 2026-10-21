@@ -19,12 +19,16 @@ def check(condition, name):
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True, **({'executable_path': args.chromium} if args.chromium else {}))
     page = browser.new_page(viewport={'width': 1650, 'height': 1100}, accept_downloads=True)
+    def reveal(selector):
+        section = page.locator(selector)
+        if section.count() and section.get_attribute('open') is None:
+            section.locator('summary').first.click()
     page.on('pageerror', lambda e: errors.append(str(e)))
     page.on('request', lambda r: requests.append(r.url))
     page.on('dialog', lambda d: d.accept())
     def load(name):
         if args.set_content:
-            page.set_content((root / name).read_text(encoding='utf8'), wait_until='load')
+            page.set_content((root / name).read_bytes().decode('utf8'), wait_until='load')
         else:
             page.goto((root / name).as_uri())
     load('features.html')
@@ -40,8 +44,10 @@ with sync_playwright() as p:
     check('agent' in page.locator('#detail').inner_text(), 'example origin is agent rather than user-approved')
     page.locator('.feature-mapping[data-mapping="result-wrapper"]').click()
     check('待审提案' in page.locator('#detail').inner_text(), 'initial mapping has not been self-accepted')
+    reveal('.feature-warning-details')
     check('候选关系' in page.locator('#detail').inner_text() and '来源集合不完整' in page.locator('#detail').inner_text(), 'candidate and incomplete provenance survive mapping')
     page.screenshot(path=str(root / 'preview-feature-evidence.png'), full_page=True)
+    reveal('.feature-evidence-details')
     page.locator('.feature-evidence').first.click()
     check('bounded-value-origin' in page.locator('#detail').inner_text(), 'mapping opens original relation and value-origin evidence')
     page.locator('.feature-back').first.click()
@@ -50,11 +56,14 @@ with sync_playwright() as p:
     check(page.locator('#local-view').is_visible(), 'feature-to-code reaches existing source explorer')
     check(page.locator('.feature-reverse').count() == 1, 'source reverse mapping uses exact current entity')
     page.locator('.feature-reverse').click()
+    reveal('.feature-review-details')
     page.locator('.feature-review[data-decision="accepted"]').click()
     check('invalid actor' in page.locator('#feature-notice').inner_text(), 'review requires explicit author and reason')
     page.get_by_label('编辑者（自述身份）').fill('browser-test-reviewer')
     page.get_by_label('本次修改理由').fill('Test-only decision; not a real product acceptance')
+    reveal('.feature-review-details')
     page.locator('.feature-review[data-decision="accepted"]').click()
+    reveal('.feature-warning-details')
     check('人工接受' in page.locator('#detail').inner_text() and '候选关系' in page.locator('#detail').inner_text(), 'acceptance does not promote candidate evidence')
     check('人工接受' in page.locator('.feature-mapping[data-mapping="result-wrapper"]').inner_text(), 'list and inspector update the same review state')
     check('尚未写入文件' in page.locator('#feature-notice').inner_text(), 'in-memory edit is not presented as saved')
@@ -77,6 +86,7 @@ with sync_playwright() as p:
     page.locator('.feature-source').click()
     check(page.locator('.feature-reverse').count() == 2, 'shared declaration navigates to two features without inferred dependency')
     page.locator('.feature-reverse').first.click()
+    reveal('.feature-review-details')
     page.locator('.feature-review[data-decision="rejected"]').click()
     check('已拒绝' in page.locator('#detail').inner_text(), 'explicit rejection remains visible')
     page.locator('#project-tab').click()

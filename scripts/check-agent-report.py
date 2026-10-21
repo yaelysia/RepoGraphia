@@ -19,11 +19,15 @@ def check(condition, name):
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True, **({'executable_path': a.chromium} if a.chromium else {}))
     page = browser.new_page(viewport={'width': 1650, 'height': 1100})
+    def reveal(selector):
+        section = page.locator(selector)
+        if section.count() and section.get_attribute('open') is None:
+            section.locator('summary').first.click()
     page.on('pageerror', lambda e: errors.append(str(e)))
     page.on('request', lambda r: requests.append(r.url))
     html = root / 'index.html'
     if a.set_content:
-        page.set_content(html.read_text(encoding='utf8'), wait_until='load')
+        page.set_content(html.read_bytes().decode('utf8'), wait_until='load')
     else:
         page.goto(html.as_uri())
     graph_before = page.locator('#graph-data').text_content()
@@ -32,12 +36,15 @@ with sync_playwright() as p:
     check('13 条映射' in page.locator('#feature-summary').inner_text(), 'append adds seven mappings without replacing the original six')
     page.locator('.feature-card[data-feature="desktop-alert-interaction"]').click()
     check('第0个动作按钮' in page.locator('#detail').inner_text() and '正文点击' in page.locator('#detail').inner_text(), 'different actions have explicit behavioral boundaries')
+    page.locator('.feature-mode[data-mode="list"]').click()
     check(page.locator('.feature-mapping').count() == 5, 'notification includes trigger, implementation and navigation support')
     page.screenshot(path=str(root / 'preview-agent-features.png'), full_page=True)
     page.locator('.feature-mapping[data-mapping="desktop-click"]').click()
     check('待审提案' in page.locator('#detail').inner_text(), 'agent cannot self-accept')
+    reveal('.feature-warning-details')
     check('候选关系' in page.locator('#detail').inner_text() and '来源集合不完整' in page.locator('#detail').inner_text(), 'candidate provenance survives proposal publication')
     page.screenshot(path=str(root / 'preview-agent-evidence.png'), full_page=True)
+    reveal('.feature-evidence-details')
     page.locator('.feature-evidence').last.click()
     check('bounded-value-origin' in page.locator('#detail').inner_text(), 'original value-origin evidence remains inspectable')
     page.locator('.feature-back').first.click()

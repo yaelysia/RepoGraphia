@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import type { CodeGraph } from './model.js';
 import { createProjectMapApi } from './project-map.js';
 import { createFeatureMigrationApi } from './feature-migration.js';
+import { createFeatureSceneApi } from './feature-scene.js';
 import { createFeatureMapApi } from './feature-map.js';
 import { resolutionSummary } from './diagnostics.js';
 
@@ -20,10 +21,11 @@ export function renderHtml(graph: CodeGraph, features?: unknown): string {
   const featureData = features === undefined ? null : featureApi.validate(features);
   if (featureData) featureApi.assess(graph, featureData);
   const featureUi = fs.readFileSync(new URL('../viewer/feature-map-view.js', import.meta.url), 'utf8');
+  const sceneUi = fs.readFileSync(new URL('../viewer/feature-scene-view.js', import.meta.url), 'utf8');
   const migrationUi = fs.readFileSync(new URL('../viewer/feature-migration-view.js', import.meta.url), 'utf8');
   // HTML parsing normalizes CRLF and lone CR before CSP hashes inline script text.
   // Hash and embed the same normalized runtime, including factory toString() output.
-  const script = `(() => { const FeatureMap = (${createFeatureMapApi.toString()})();\nconst FeatureMigration = (${createFeatureMigrationApi.toString()})(FeatureMap);\n${migrationUi}\n${featureUi}\nconst ProjectMap = (${createProjectMapApi.toString()})();\n${ui}\n${app}\ndocument.getElementById('viewer-startup')?.remove();\n})();`.replace(/\r\n?/g, '\n');
+  const script = `(() => { const FeatureMap = (${createFeatureMapApi.toString()})();\nconst FeatureMigration = (${createFeatureMigrationApi.toString()})(FeatureMap);\n${migrationUi}\nconst FeatureScene = (${createFeatureSceneApi.toString()})();\n${sceneUi}\n${featureUi}\nconst ProjectMap = (${createProjectMapApi.toString()})();\n${ui}\n${app}\ndocument.getElementById('viewer-startup')?.remove();\n})();`.replace(/\r\n?/g, '\n');
   const template = fs.readFileSync(new URL('../viewer/body.html', import.meta.url), 'utf8');
   const digest = createHash('sha256').update(script).digest('base64');
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
