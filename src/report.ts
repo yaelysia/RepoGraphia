@@ -21,12 +21,14 @@ export function renderHtml(graph: CodeGraph, features?: unknown): string {
   if (featureData) featureApi.assess(graph, featureData);
   const featureUi = fs.readFileSync(new URL('../viewer/feature-map-view.js', import.meta.url), 'utf8');
   const migrationUi = fs.readFileSync(new URL('../viewer/feature-migration-view.js', import.meta.url), 'utf8');
-  const script = `(() => { const FeatureMap = (${createFeatureMapApi.toString()})();\nconst FeatureMigration = (${createFeatureMigrationApi.toString()})(FeatureMap);\n${migrationUi}\n${featureUi}\nconst ProjectMap = (${createProjectMapApi.toString()})();\n${ui}\n${app}\n})();`;
+  // HTML parsing normalizes CRLF and lone CR before CSP hashes inline script text.
+  // Hash and embed the same normalized runtime, including factory toString() output.
+  const script = `(() => { const FeatureMap = (${createFeatureMapApi.toString()})();\nconst FeatureMigration = (${createFeatureMigrationApi.toString()})(FeatureMap);\n${migrationUi}\n${featureUi}\nconst ProjectMap = (${createProjectMapApi.toString()})();\n${ui}\n${app}\ndocument.getElementById('viewer-startup')?.remove();\n})();`.replace(/\r\n?/g, '\n');
   const template = fs.readFileSync(new URL('../viewer/body.html', import.meta.url), 'utf8');
   const digest = createHash('sha256').update(script).digest('base64');
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-${digest}'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
-<title>RepoGraphia · Code Explorer</title><style>${css}</style></head><body>${template}
+<title>RepoGraphia · Code Explorer</title><style>${css}</style></head><body><p id="viewer-startup" class="callout" role="status">正在加载代码地图。若此提示一直显示且地图为空，页面脚本未成功启动；请更新 RepoGraphia、重新构建并生成新报告。无需关闭浏览器安全设置。</p>${template}
 <script id="graph-data" type="application/json">${safeJson(graph)}</script>
 <script id="feature-data" type="application/json">${safeJson(featureData)}</script>
 <script id="resolution-data" type="application/json">${safeJson(resolutionSummary(graph))}</script><script>${script}</script></body></html>`;
