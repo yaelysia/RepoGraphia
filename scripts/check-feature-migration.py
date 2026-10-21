@@ -55,7 +55,7 @@ with sync_playwright() as pw:
     check(json.loads(page.locator('#graph-data').text_content())==initial,'code graph is unchanged')
     page.locator('#feature-import').set_input_files(str(dest));expect(page.locator('#feature-notice')).to_contain_text('已导入')
     check('2 条失效' in page.locator('#feature-summary').inner_text(),'schema 2 import preserves partial migration')
-    page.locator('.feature-card').click();page.locator('#feature-mappings .feature-mapping[data-mapping="caller"]').click()
+    page.locator('.feature-card').click();page.locator('.feature-mode[data-mode="list"]').click();page.locator('#feature-mappings .feature-mapping[data-mapping="caller"]').click()
     check(page.locator('.feature-source').count()==0 and page.locator('.feature-review[data-decision="accepted"]').is_disabled(),'deferred records cannot navigate or be accepted')
     page.locator('#feature-mappings .feature-mapping[data-mapping="keep"]').click();page.locator('.feature-correct').click()
     page.get_by_label('修正关联理由',exact=True).fill('Explicit corrected rationale in automated test')
