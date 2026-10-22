@@ -1,5 +1,11 @@
 # RepoGraphia 当前检查点
 
+## CP35：下一阶段方向已确定，持续工作区尚未实现
+
+2026-10-22，用户明确项目目的是降低 vibe coding 理解成本，支持开发前理解、开发中审阅实际工作、开发后比对，让弱代码者保持掌控。选择围绕功能继续探索＋项目连续使用；底层代码图跟随工作区，上层功能图增量维护；内容先全项目粗图再深入；初版继续使用外部 Agent，界面启动后置。
+
+先读 `docs/product-direction.md`、`docs/checkpoints/CP35-continuous-review-plan.md`。当前实现基线为 `9f214103abd9debda6cb3e4b615c68460cf8f381`，本计划分支 `docs/continuous-review-plan`；本次仅文档。M1 将补连续工作区、保存、自动重建、任务基线和代码变化比较；M2 补局部功能修订和任务交接。不要把当前全量重建称为增量提取，也不要用监听事件推断 Agent 意图。接手先核对最新 master 与计划 PR，原 UI 实现验收见 CP34。
+
 ## CP34：统一暗色工作台已完成跨平台验收
 
 2026-10-22，项目地图与功能映射已统一为固定暗色工作台，保留一致顶栏、搜索、左右阅读区与跨模式状态；目录/文件节点重构、蓝紫光晕/点阵和明显有限动效完成。分支 `feat/unified-dark-workbench`，PR [#10](https://github.com/yaelysia/RepoGraphia/pull/10)。远端实现 HEAD `4b41d615421cfc89bcb36d7cb30007258fdf74b8` 的 [Verify #48](https://github.com/yaelysia/RepoGraphia/actions/runs/39741083588) 全部通过：Linux 332 pass；Windows 329 pass、3 项既有符号链接权限 skip；两平台各 69 项共享界面、48 项功能工作台、41 项关联代码场景和 6 个启动/CSP 夹具符合预期，固定真实样本各 gate 全绿。
