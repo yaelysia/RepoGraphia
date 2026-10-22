@@ -1,5 +1,9 @@
 # RepoGraphia 当前检查点
 
+## CP32：统一暗色工作台正在实施
+
+2026-10-22，用户要求项目地图与功能映射共用一致暗色 UI，改善背景、颜色和切换动效。已核对远端/本地 master 为 `3eb50e0eae6c720a28b59adf5e2da3e3601bc4b0`（PR #9 已合并，合并后 Verify #47 全绿）。新分支 `feat/unified-dark-workbench`，范围与验收计划见 `docs/checkpoints/CP32-unified-dark-workbench-plan.md`。此阶段完成截图和实现审计，尚未完成新实现验证；不要把 CP31 的通过结果作为本轮验收。
+
 ## CP31：极简功能工作台已完成跨平台验收
 
 2026-10-22，用户选定的「极简工具」设计已接入正式离线渲染器：左图右阅读区、显式递归层级、搜索定位、状态恢复与进入/返回动效。开发分支 `feat/minimal-function-workbench`，PR [#9](https://github.com/yaelysia/RepoGraphia/pull/9)。实现 HEAD `039998876b722e35c22d7dd15c6cc05970842fbf` 的 [Verify #45](https://github.com/yaelysia/RepoGraphia/actions/runs/39728469228) 全部通过：Linux 332 pass；Windows 329 pass、3 项既有符号链接权限 skip；两平台各 48 项新工作台、41 项原场景及 6 组启动/CSP 检查通过，固定真实样本 gate 全绿。
