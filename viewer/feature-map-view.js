@@ -1,7 +1,9 @@
 /** Editable semantic sidecar, explicit hierarchy and a read-only underlying code graph. */
-function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,make,button,onNode,onEvidence,onActivate,shell}) {
+function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,make,button,onNode,onEvidence,onActivate,shell,workspaceBridge=null}) {
   const $=id=>document.getElementById(id),panel=$('feature-view');
   const migrationButton=make('button','跨快照迁移');migrationButton.id='feature-migrate';panel.querySelector('.feature-actions').append(migrationButton);
+  const readOnly=!!workspaceBridge?.readOnly;
+  for(const control of [$('feature-new'),$('feature-import'),migrationButton])control.disabled=readOnly;
   const migrationPanel=make('section');migrationPanel.id='feature-migration';migrationPanel.hidden=true;$('feature-cards').before(migrationPanel);
   const labels={proposed:'待审提案',accepted:'人工接受（自述）',rejected:'已拒绝'};
   const roles={entry:'入口',implementation:'实现',support:'支撑',test:'测试代码（未运行）'};
@@ -20,7 +22,7 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
   const scopes=new Map(),inspections=new Map(),scopeKey=()=>scopeId;
   const fields=(box,name,value='',multiline=false)=>{
     const label=make('label',name,'feature-field'),input=make(multiline?'textarea':'input');
-    input.value=value;input.setAttribute('aria-label',name);label.append(input);box.append(label);return input;
+    input.value=value;input.disabled=readOnly;input.setAttribute('aria-label',name);label.append(input);box.append(label);return input;
   };
   function notice(text){$('feature-notice').textContent=text;}
   function context(box){
@@ -41,7 +43,7 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
   }
   function inspector(key,title,eyebrow){
     inspectorKey=key;detailTab=inspections.get(key)?.tab||'about';
-    const box=$('detail'),tabs=make('div',null,'feature-detail-tabs'),header=make('div',null,'feature-detail-header'),heading=make('div');
+    const box=$('detail'),tabs=make('div',null,'feature-detail-tabs'),header=make('div',null,'feature-detail-header'),heading=make('div');delete box.dataset.workspaceEdit;
     heading.append(make('span',eyebrow,'eyebrow'),make('h3',title));
     header.append(heading);
     for(const [id,label]of [['about','说明'],['evidence','依据'],['review','审阅']]){
@@ -105,7 +107,7 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
     }));
   }
   function renderOverview(){
-    inspectorKey=null;const box=$('detail');box.replaceChildren(make('span','功能地图','eyebrow'),make('h3','从一个功能开始'),
+    inspectorKey=null;const box=$('detail');delete box.dataset.workspaceEdit;box.replaceChildren(make('span','功能地图','eyebrow'),make('h3','从一个功能开始'),
       make('p','点选节点阅读说明，点击“进入功能”查看下一层。路径栏可以随时返回。'),
       make('p','功能连线表示明确标注的包含关系；关联代码另行查看。','meta'),
       make('p','当前内容是有限范围的功能提案，不是完整功能清单。','meta'));
@@ -130,7 +132,8 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
     parts.evidence.append(make('p',`${children.length} 个直接子功能 · ${items.length} 条显式代码关联`));
     if(items.some(m=>!m.current))parts.evidence.append(make('div','含失效映射；旧锚点不会连接到当前代码。','callout'));
     parts.evidence.append(make('p','代码角色仅用于分组。共享代码不表示功能依赖，也不表示执行顺序。','meta'),button('查看全部关联代码',()=>navigate(id,'code'),'detail-link'));
-    parts.review.append(button('编辑功能说明',()=>featureForm(f),'detail-link'));
+    if(!readOnly)parts.review.append(button('编辑功能说明',()=>featureForm(f),'detail-link'));
+    else parts.review.append(make('p','历史标注只读；审阅决定仍属于当时的版本。','meta'));
     const creation=doc.history.find(h=>h.operation==='feature'&&h.subject===id);
     parts.review.append(make('p',creation?`标注来源：${creation.actorKind} / ${creation.actor}（自述，未认证）`:'标注来源未记录','meta'),make('p','人工接受是审阅决定，不会把候选证据升级为程序证明。','meta'));
     finishInspector();
@@ -170,23 +173,27 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
       for(const ref of m.evidence)evidence.append(button(`${ref.kind} · ${ref.status} · 查看原关系`,()=>openEvidence(graph.relations.find(e=>e.id===ref.relationId)),'detail-link feature-evidence'));
       if(!m.evidence.length)evidence.append(make('p','仅记录声明锚点，没有附加关系证据。'));
     }
-    parts.review.append(button('修正关联理由、角色与证据',()=>mappingForm(m),'detail-link feature-correct'));
+    if(!readOnly)parts.review.append(button('修正关联理由、角色与证据',()=>mappingForm(m),'detail-link feature-correct'));
     const review=fold(parts.review,'审阅与修改决定','feature-review-details');context(review);
     for(const state of ['accepted','rejected','proposed']){
-      const b=button(labels[state],()=>{if(edit({op:'review',id,decision:state}))showMapping(id);},'detail-link feature-review');b.dataset.decision=state;b.disabled=state==='accepted'&&!item.current;review.append(b);
+      const b=button(labels[state],()=>{if(edit({op:'review',id,decision:state}))showMapping(id);},'detail-link feature-review');b.dataset.decision=state;b.disabled=readOnly||state==='accepted'&&!item.current;review.append(b);
     }
     const history=doc.history.filter(h=>h.subject===id).slice(-10),log=fold(parts.review,'最近修改记录（自述）','feature-history');
     for(const h of history)log.append(make('p',`r${h.revision} · ${h.actorKind}/${h.actor} · ${h.operation} · ${h.reason}`,'meta'));
     finishInspector();
   }
   function edit(operation){
+    if(readOnly)return false;
     try{
       saveInspector();doc=api.edit(graph,doc,operation,{expectedRevision:doc.revision,actor,actorKind:'manual',reason,at:new Date().toISOString()});
-      dirty=true;report=api.assess(graph,doc);refresh();notice('内存草稿已修改，尚未写入文件。请导出 JSON 保存。');return true;
+      dirty=true;report=api.assess(graph,doc);refresh();
+      if(workspaceBridge){workspaceBridge.changed(doc);notice('正在保存到本地工作区…');}
+      else notice('内存草稿已修改，尚未写入文件。请导出 JSON 保存。');return true;
     }catch(error){notice(error.message);return false;}
   }
   function featureForm(f){
-    saveInspector();migrationView.close();inspectorKey=null;const box=$('detail');box.replaceChildren(make('h3',f?'编辑功能说明':'新建功能提案'));context(box);
+    if(readOnly)return;
+    saveInspector();migrationView.close();inspectorKey=null;const box=$('detail');box.dataset.workspaceEdit='true';box.replaceChildren(make('h3',f?'编辑功能说明':'新建功能提案'));context(box);
     const title=fields(box,'功能名称',f?.title||''),summary=fields(box,'一句解释（可选）',f?.summary||'');summary.maxLength=200;
     const parentLabel=make('label','父功能（可选）','feature-field'),parent=make('select');parent.setAttribute('aria-label','父功能（可选）');
     const root=make('option','无 · 作为顶层功能');root.value='';parent.append(root);
@@ -194,14 +201,15 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
     for(const item of doc.features){if(excluded.has(item.id))continue;const option=make('option',hierarchy.path(item.id).map(x=>x.title).join(' / '));option.value=item.id;parent.append(option);}
     parent.value=f?.parentId||(f?'':scopeId||'');parentLabel.append(parent);box.append(parentLabel);
     const description=fields(box,'功能说明',f?.description||'',true),questions=fields(box,'待确认问题（每行一个）',f?.questions.join('\n')||'',true);
-    box.append(make('p','父功能只表示包含关系。修改功能含义会将此前接受的映射退回待审。','meta'),button('保存到内存草稿',()=>{
+    box.append(make('p','父功能只表示包含关系。修改功能含义会将此前接受的映射退回待审。','meta'),button(workspaceBridge?'应用并保存':'保存到内存草稿',()=>{
       const id=f?.id||freshId('feature'),feature={id,title:title.value,description:description.value,questions:questions.value.split('\n').filter(x=>x.trim())};
       if(summary.value.trim())feature.summary=summary.value;if(parent.value)feature.parentId=parent.value;
       if(edit({op:'feature',feature}))jump(id);
     },'detail-link feature-save'),button('取消',()=>renderInspector(),'detail-link'));workbench.showDetails();
   }
   function mappingForm(m){
-    saveInspector();inspectorKey=null;const box=$('detail');box.replaceChildren(make('h3','修正代码关联'));context(box);
+    if(readOnly)return;
+    saveInspector();inspectorKey=null;const box=$('detail');box.dataset.workspaceEdit='true';box.replaceChildren(make('h3','修正代码关联'));context(box);
     const target=fields(box,'关联实体准确 ID',m.code.nodeId),role=make('select');role.setAttribute('aria-label','修正代码角色');
     for(const [k,v]of Object.entries(roles)){const option=make('option',v);option.value=k;role.append(option);}role.value=m.role;box.append(role);
     const why=fields(box,'修正关联理由',m.rationale,true),refs=fields(box,'关系准确 ID（每行一个）',m.evidence.map(e=>e.relationId).join('\n'),true);
@@ -215,8 +223,8 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
     const hierarchy=api.hierarchy(doc.features),path=id=>hierarchy.path(id).map(f=>f.title).join(' / ');
     box.append(make('h4',`关联功能 · ${items.length}（仅显式映射）`));
     for(const item of items)box.append(button(path(item.mapping.featureId),()=>{onActivate();showMapping(item.mapping.id);},'detail-link feature-reverse'));
-    if(doc.features.length)box.append(button('将此实体关联到功能…',()=>{
-      onActivate();saveInspector();inspectorKey=null;const box=$('detail');box.replaceChildren(make('h3','添加代码映射'),make('p',n.name+' · '+n.location.file));context(box);
+    if(doc.features.length&&!readOnly)box.append(button('将此实体关联到功能…',()=>{
+      onActivate();saveInspector();inspectorKey=null;const box=$('detail');box.dataset.workspaceEdit='true';box.replaceChildren(make('h3','添加代码映射'),make('p',n.name+' · '+n.location.file));context(box);
       const f=make('select'),r=make('select');f.setAttribute('aria-label','目标功能');r.setAttribute('aria-label','代码角色');
       for(const item of doc.features){const o=make('option',path(item.id));o.value=item.id;f.append(o);}
       for(const [k,v]of Object.entries(roles)){const o=make('option',v);o.value=k;r.append(o);}box.append(f,r);
@@ -232,18 +240,21 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
     notice('已请求导出 JSON；请保存下载文件。页面不会写入仓库，也不会更新原 HTML。');
   };
   $('feature-import').onchange=async event=>{
+    if(readOnly)return;
     const file=event.target.files[0];if(!file)return;const previous=doc;
     try{
       if(file.size>5*1024*1024)throw new Error('标注文件超过 5 MiB');const next=api.validate(JSON.parse(await file.text()));
       if(doc!==previous)throw new Error('导入期间发生编辑，请重试，当前草稿未覆盖。');
       if(dirty&&!confirm('导入将替换未保存的内存草稿，继续？'))return;
-      const checked=api.assess(graph,next);doc=next;report=checked;dirty=false;migrationView.close();resetView();
-      notice(checked.summary.stale?'已导入，但部分映射失效；没有自动重绑定。':'标注已载入内存，原文件未修改。');
+      const checked=api.assess(graph,next);doc=next;report=checked;dirty=!!workspaceBridge;migrationView.close();resetView();
+      if(workspaceBridge){workspaceBridge.changed(doc);notice('标注已导入，正在保存到本地工作区。失效依据不会自动重绑定。');}
+      else notice(checked.summary.stale?'已导入，但部分映射失效；没有自动重绑定。':'标注已载入内存，原文件未修改。');
     }catch(error){notice('导入失败：'+error.message);}finally{event.target.value='';}
   };
   const migrationView=createFeatureMigrationView({graph,api:migrationApi,getDocument:()=>doc,make,button,fields,context,notice,
     onInspect:()=>{saveInspector();inspectorKey=null;workbench.showDetails();},
     editContext:()=>({expectedRevision:doc.revision,actor,actorKind:'manual',reason,at:new Date().toISOString()}),
-    onApplied:next=>{doc=next;report=api.assess(graph,doc);dirty=true;resetView();}});
+    onApplied:next=>{if(readOnly)return;doc=next;report=api.assess(graph,doc);dirty=true;resetView();workspaceBridge?.changed(doc);}});
+  workspaceBridge?.attach({document:()=>doc,saved:()=>{dirty=false;refresh();notice('已保存到本地工作区。');},failed:message=>{dirty=true;refresh();notice('保存失败：'+message+'。当前草稿仍保留，可导出 JSON。');}});
   return {enter,leave,renderList,decorateNode,backButton,get active(){return active;}};
 }

@@ -1,10 +1,10 @@
 import ts from 'typescript';
 import path from 'node:path';
-import fs from 'node:fs';
 import type { CodeGraph, CodeNode, Evidence, Relation, RelationKind, Status, UnresolvedReason } from './model.js';
+import type { AnalysisInputs } from './project.js';
 import { ANALYSIS_REVISION, CALL_KINDS } from './model.js';
 import { createValueOriginTracer } from './value-origins.js';
-import { loadProject, locate, normalize, hash, gitState, isSource, inside, fileKey, isDependency } from './project.js';
+import { loadProject, locate, normalize, hash, gitState, isSource, inside, fileKey, isDependency, analysisInputDigest } from './project.js';
 
 const executable = (n: ts.Node): n is ts.FunctionDeclaration | ts.FunctionExpression | ts.ArrowFunction |
   ts.MethodDeclaration | ts.ConstructorDeclaration | ts.GetAccessorDeclaration | ts.SetAccessorDeclaration =>
@@ -36,7 +36,8 @@ function label(n: ts.Node): string {
   return '<anonymous>';
 }
 
-export function analyze(input: string, options: { project?: string; includeSource?: boolean } = {}): CodeGraph {
+export function analyze(input: string, options: { project?: string; includeSource?: boolean;
+  onInputs?: (inputs: AnalysisInputs) => void } = {}): CodeGraph {
   const p = loadProject(input, options.project), checker = p.program.getTypeChecker();
   const nodes: CodeNode[] = [], relations: Relation[] = [];
   const ids = new Map<ts.Node, string>(), astById = new Map<string, ts.Node>(), bodies = new Map<string, CodeNode>();
@@ -310,9 +311,10 @@ export function analyze(input: string, options: { project?: string; includeSourc
   const files = p.sources.map(sf => ({ path: normalize(path.relative(p.root, sf.fileName)), hash: hashes.get(sf.fileName)!,
     lines: sf.getLineStarts().length, ...(options.includeSource ? { source: sf.text } : {}) })).sort((a, b) => a.path.localeCompare(b.path));
   // Rule changes must invalidate identity even when source/compiler inputs are identical.
-  const configText = p.configPath ? fs.readFileSync(p.configPath, 'utf8') : '';
-  const snapshot = hash(JSON.stringify({ analysisRevision: ANALYSIS_REVISION, files: [...p.readHashes].sort(),
-    options: p.options, configText, compiler: ts.version }));
+  const inputs = p.captureInputs();
+  const snapshot = hash(JSON.stringify({ analysisRevision: ANALYSIS_REVISION, inputRevision: 1,
+    inputs: analysisInputDigest(inputs), options: p.options, compiler: ts.version }));
+  options.onInputs?.(inputs);
   const counts: Record<Status, number> = { bound: 0, candidate: 0, unresolved: 0, external: 0 };
   for (const edge of relations) if (CALL_KINDS.has(edge.kind)) counts[edge.status]++;
   return { schemaVersion: 1, project: { name: path.basename(p.root), ...gitState(p.root), snapshot,
