@@ -13,7 +13,7 @@ export function safeJson(value: unknown): string {
     char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0'));
 }
 export function renderHtml(graph: CodeGraph, features?: unknown): string {
-  const css = ['style.css', 'project-map.css', 'feature-map.css', 'feature-workbench.css'].map(name =>
+  const css = ['style.css', 'project-map.css', 'feature-map.css', 'feature-workbench.css', 'workbench-shell.css'].map(name =>
     fs.readFileSync(new URL('../viewer/' + name, import.meta.url), 'utf8')).join('\n');
   const ui = fs.readFileSync(new URL('../viewer/project-map-view.js', import.meta.url), 'utf8');
   const app = fs.readFileSync(new URL('../viewer/app.js', import.meta.url), 'utf8');
@@ -23,15 +23,16 @@ export function renderHtml(graph: CodeGraph, features?: unknown): string {
   const featureUi = fs.readFileSync(new URL('../viewer/feature-map-view.js', import.meta.url), 'utf8');
   const sceneUi = fs.readFileSync(new URL('../viewer/feature-scene-view.js', import.meta.url), 'utf8');
   const workbenchUi = fs.readFileSync(new URL('../viewer/feature-workbench-view.js', import.meta.url), 'utf8');
+  const shellUi = fs.readFileSync(new URL('../viewer/workbench-shell-view.js', import.meta.url), 'utf8');
   const migrationUi = fs.readFileSync(new URL('../viewer/feature-migration-view.js', import.meta.url), 'utf8');
   // HTML parsing normalizes CRLF and lone CR before CSP hashes inline script text.
   // Hash and embed the same normalized runtime, including factory toString() output.
-  const script = `(() => { const FeatureMap = (${createFeatureMapApi.toString()})();\nconst FeatureMigration = (${createFeatureMigrationApi.toString()})(FeatureMap);\n${migrationUi}\nconst FeatureScene = (${createFeatureSceneApi.toString()})();\n${sceneUi}\n${workbenchUi}\n${featureUi}\nconst ProjectMap = (${createProjectMapApi.toString()})();\n${ui}\n${app}\ndocument.getElementById('viewer-startup')?.remove();\n})();`.replace(/\r\n?/g, '\n');
+  const script = `(() => { const FeatureMap = (${createFeatureMapApi.toString()})();\nconst FeatureMigration = (${createFeatureMigrationApi.toString()})(FeatureMap);\n${migrationUi}\nconst FeatureScene = (${createFeatureSceneApi.toString()})();\n${sceneUi}\n${workbenchUi}\n${featureUi}\nconst ProjectMap = (${createProjectMapApi.toString()})();\n${ui}\n${shellUi}\n${app}\ndocument.getElementById('viewer-startup')?.remove();\n})();`.replace(/\r\n?/g, '\n');
   const template = fs.readFileSync(new URL('../viewer/body.html', import.meta.url), 'utf8');
   const digest = createHash('sha256').update(script).digest('base64');
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-${digest}'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
-<title>RepoGraphia · Code Explorer</title><style>${css}</style></head><body><p id="viewer-startup" class="callout" role="status">正在加载代码地图。若此提示一直显示且地图为空，页面脚本未成功启动；请更新 RepoGraphia、重新构建并生成新报告。无需关闭浏览器安全设置。</p>${template}
+<title>RepoGraphia · Code Explorer</title><style>${css}</style></head><body class="workbench" data-view="project"><p id="viewer-startup" class="callout" role="status">正在加载代码地图。若此提示一直显示且地图为空，页面脚本未成功启动；请更新 RepoGraphia、重新构建并生成新报告。无需关闭浏览器安全设置。</p>${template}
 <script id="graph-data" type="application/json">${safeJson(graph)}</script>
 <script id="feature-data" type="application/json">${safeJson(featureData)}</script>
 <script id="resolution-data" type="application/json">${safeJson(resolutionSummary(graph))}</script><script>${script}</script></body></html>`;

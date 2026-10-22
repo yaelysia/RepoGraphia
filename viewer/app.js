@@ -10,7 +10,8 @@
   const colors = { bound: '#91b9fc', candidate: '#dfb772', unresolved: '#ee929e', external: '#8b97ac' };
   const nodes = new Map(graph.nodes.map(n => [n.id, n]));
   const files = new Map(graph.files.map(f => [f.path, f]));
-  let projectView, featureView;
+  let projectView, featureView, initialized = false;
+  const shell = createWorkbenchShell();
   let tab = 'files', selected = null, page = 60, edgePage = 50, zoom = 1;
   const make = (tag, text, cls) => { const el = document.createElement(tag); if (text != null) el.textContent = text; if (cls) el.className = cls; return el; };
   const button = (text, action, cls) => { const b = make('button', text, cls); b.onclick = action; return b; };
@@ -40,24 +41,34 @@
   }
   $('nav-footer').textContent = `${graph.coverage.unindexed.length} 个源码文件未索引 · ${graph.diagnostics.length} 条编译诊断。查看「分析边界」了解范围。`;
   function setTab(next) {
+    if (initialized && next === tab) return;
+    const previous = tab;
+    shell.remember();
+    if (featureView?.active) featureView.leave();
+    if (projectView?.active) projectView.leave();
+    shell.prepare(next, ['files','symbols','gaps'].includes(next));
     tab = next; page = 60;
-    for (const t of ['project','features','files','symbols','gaps']) $(t + '-tab').classList.toggle('active', tab === t);
-    if (featureView?.active) { featureView.leave(); projectView.leave(); }
-    if (tab === 'features') { projectView.leave(); featureView.enter(); }
+    for (const t of ['files','symbols','gaps']) $(t + '-tab').classList.toggle('active', tab === t);
+    if (tab === 'features') featureView.enter();
     else if (tab === 'project') projectView.enter();
-    else if (tab !== 'gaps') { projectView.leave(); renderMap(); renderEdges(); }
-    renderList();
+    else {
+      $('feature-view').hidden = true; $('project-view').hidden = true; $('local-view').hidden = false;
+      renderMap(); renderEdges(); if (selected) showNode(nodes.get(selected), false);
+    }
+    renderList(); shell.finish(previous, initialized);
+    if (tab === 'gaps') shell.toggleNavigation(true, false);
   }
   function select(id) {
     if (!nodes.has(id)) return;
-    if (projectView?.active || featureView?.active) { featureView?.leave(); projectView.leave(); tab='files'; for(const t of ['project','features','files','symbols','gaps']) $(t+'-tab').classList.toggle('active',t===tab); }
+    if (projectView?.active || featureView?.active) setTab('files');
     selected = id; edgePage = 50; zoom = 1;
     renderList(); renderMap(); renderEdges(); showNode(nodes.get(id));
+    shell.toggleNavigation(false, false);
   }
   function renderList() {
     const list = $('node-list'); list.replaceChildren();
     const search = $('search').value.trim().toLowerCase();
-    if (tab === 'features') { featureView.renderList(search,page); return; }
+    if (tab === 'features') { featureView.renderList('',page); return; }
     if (tab === 'project') { projectView.renderList(search,page); return; }
     if (tab === 'gaps') {
       $('list-count').textContent = ''; $('more').hidden = true;
@@ -128,9 +139,9 @@
       const n = nodes.get(id), name = n?.name || edge?.targetLabel || '未知目标';
       const status = edge?.status || 'bound', color = colors[status];
       const group = svgEl('g',{class:'node',tabindex:0,role:'button','aria-label':name});
-      group.append(svgEl('rect',{x:x-128,y:y-33,width:256,height:66,rx:10,fill:center?'#20324d':'#141e2d',stroke:center?'#91b9fc':color,'stroke-width':center?2:1,'stroke-dasharray':status==='candidate'?'6 4':''}));
-      group.append(svgEl('text',{x,y:y-4,'text-anchor':'middle',fill:'#e0e6f0','font-size':14},short(name.split('/').pop(),30)));
-      group.append(svgEl('text',{x,y:y+18,'text-anchor':'middle',fill:'#8b99ad','font-size':11},n ? `${n.kind} · L${n.location.line}` : names[status]));
+      group.append(svgEl('rect',{x:x-128,y:y-33,width:256,height:66,rx:28,fill:center?'var(--accent-soft)':'var(--surface)',stroke:center?'var(--accent)':color,'stroke-width':center?2:1,'stroke-dasharray':status==='candidate'?'6 4':''}));
+      group.append(svgEl('text',{x,y:y-4,'text-anchor':'middle',fill:'var(--text)','font-size':14},short(name.split('/').pop(),30)));
+      group.append(svgEl('text',{x,y:y+18,'text-anchor':'middle',fill:'var(--muted)','font-size':11},n ? `${n.kind} · L${n.location.line}` : names[status]));
       group.append(svgEl('title',{},name));
       const activate = () => n ? select(id) : showEdge(edge);
       group.onclick = activate; group.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(); } };
@@ -171,7 +182,8 @@
     } else { box.append(make('pre',snippet,'code'),make('p','源码节选；完整文件可在分析时使用 --include-source 嵌入。')); }
     return box;
   }
-  function showNode(n) {
+  function showNode(n, open = initialized) {
+    if (open) shell.showDetails();
     const detail = $('detail'); detail.replaceChildren();
     detail.append(make('span',n.kind.toUpperCase(),'eyebrow'),make('h3',n.name),make('p',loc(n.location),'meta'));
     if (n.parent && nodes.has(n.parent)) detail.append(button('↑ ' + nodes.get(n.parent).name,() => select(n.parent),'detail-link'));
@@ -188,6 +200,7 @@
   function showReason(reason, offset = 0) {
     const group = resolution.groups.find(g => g.reason === reason);
     if (!group) return;
+    shell.showDetails(); shell.toggleNavigation(false, false);
     const rows = graph.relations.filter(e => ['call','construct','tag'].includes(e.kind) &&
       e.status === 'unresolved' && reasonOf(e) === reason).sort((a,b) =>
       Number(testPath(a.evidence.location.file)) - Number(testPath(b.evidence.location.file)) ||
@@ -251,7 +264,8 @@
     if (trace.stops.length) detail.append(make('h4','停止原因 / 未覆盖边界'));
     for (const point of trace.stops) detail.append(originPoint(point, edge, originLabels[point.reason] || point.reason, 'origin-stop'));
   }
-  function showEdge(edge) {
+  function showEdge(edge, open = initialized) {
+    if (open) shell.showDetails();
     const detail = $('detail'); detail.replaceChildren();
     if(projectView?.active) detail.append(projectView.backButton());
     detail.append(make('span',names[edge.status],'badge '+edge.status),make('h3',kinds[edge.kind]),
@@ -281,7 +295,7 @@
   }
   $('show-tests').onchange = () => { page=60; if(projectView.active) projectView.refresh(); else {renderMap();renderEdges();} renderList(); };
   for (const tabName of ['project','features','files','symbols','gaps']) $(tabName+'-tab').onclick = () => setTab(tabName);
-  $('search').oninput = () => { page=60; renderList(); };
+  $('search').oninput = () => { page=60; renderList(); shell.toggleNavigation(true,false); };
   $('more').onclick = () => { page+=60; renderList(); };
   $('more-edges').onclick = () => { edgePage+=50; renderEdges(); };
   for (const id of ['kind','status']) $(id).onchange = () => { edgePage=50; if(projectView.active) {projectView.refresh();renderList();} else {renderMap();renderEdges();} };
@@ -293,10 +307,10 @@
   for (const edge of graph.relations) { const f=fileNode(edge.from); degree.set(f,(degree.get(f)||0)+1); }
   const first = graph.nodes.filter(n=>n.kind==='file' && visible(n)).sort((a,b)=>(degree.get(b.id)||0)-(degree.get(a.id)||0))[0];
   projectView = createProjectMapView({ graph, api:ProjectMap, make, button, svgEl,
-    onFile:id=>select(id), onEvidence:edge=>showEdge(edge), onNavigation:()=>{page=60;renderList();} });
-  featureView = createFeatureMapView({ graph,api:FeatureMap,initial:JSON.parse($('feature-data').textContent),make,button,
+    onFile:id=>select(id), onEvidence:(edge,options)=>showEdge(edge,initialized&&!options?.restore), onNavigation:()=>{page=60;renderList();}, onInspect:()=>{shell.showDetails();shell.toggleNavigation(false,false);}, onEnter:()=>shell.revealMap() });
+  featureView = createFeatureMapView({ graph,api:FeatureMap,initial:JSON.parse($('feature-data').textContent),make,button,shell,
     onNode:id=>select(id),onEvidence:edge=>showEdge(edge),onActivate:()=>setTab('features') });
   $('return-project').onclick=()=>setTab('project');
   if (first) select(first.id); else { renderList(); renderMap(); }
-  setTab('project');
+  setTab('project'); initialized = true;
 })();

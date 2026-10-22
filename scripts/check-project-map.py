@@ -27,7 +27,7 @@ with sync_playwright() as p:
         page.set_content(report.read_text(encoding='utf-8'), wait_until='load')
     else:
         page.goto(report.as_uri())
-    page.wait_for_selector('.project-row')
+    page.wait_for_selector('.project-node')
     graph = json.loads(page.locator('#graph-data').text_content())
     check_project_map(page, graph, check, Path(args.output))
     browser.close()

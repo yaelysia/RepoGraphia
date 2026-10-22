@@ -233,8 +233,8 @@ with sync_playwright() as p:
     # Layout checks assert the reading relationship rather than exact pixel styling.
     for width in [1024,736,430]:
         page.set_viewport_size({'width':width,'height':1000});settle()
-        if width < 620:
-            page.get_by_role('button', name='收起阅读区', exact=True).click()
+        if width < 620 and page.locator('.inspector').is_visible():
+            page.locator('#inspector-close').click()
         card('open').click()
         check(page.evaluate('document.documentElement.scrollWidth <= innerWidth'), f'{width}px has no page-level horizontal overflow')
         if width >= 736:

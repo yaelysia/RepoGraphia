@@ -1,5 +1,15 @@
 # RepoGraphia 当前检查点
 
+## CP34：统一暗色工作台已完成跨平台验收
+
+2026-10-22，项目地图与功能映射已统一为固定暗色工作台，保留一致顶栏、搜索、左右阅读区与跨模式状态；目录/文件节点重构、蓝紫光晕/点阵和明显有限动效完成。分支 `feat/unified-dark-workbench`，PR [#10](https://github.com/yaelysia/RepoGraphia/pull/10)。远端实现 HEAD `4b41d615421cfc89bcb36d7cb30007258fdf74b8` 的 [Verify #48](https://github.com/yaelysia/RepoGraphia/actions/runs/39741083588) 全部通过：Linux 332 pass；Windows 329 pass、3 项既有符号链接权限 skip；两平台各 69 项共享界面、48 项功能工作台、41 项关联代码场景和 6 个启动/CSP 夹具符合预期，固定真实样本各 gate 全绿。
+
+先读 `docs/checkpoints/CP34-unified-dark-workbench-validation.md`、`docs/project-map.md`、`docs/feature-map-visual.md`。CP32/33 保留范围与实现过程。本检查点只更新验收文档；最终文档 HEAD 的 CI、合并提交及合并后 master CI 在 PR #10 描述中核对，不用 #48 代替。接手先核对远端最新 master 与 PR 状态，合并后直接使用 master；已有结果仅需使用原配对 graph.json/features.json 重渲染到新 HTML，无需重扫或重跑 Agent。
+
+## CP33：统一暗色工作台已实现，等待跨平台 CI
+
+2026-10-22，用户要求项目地图与功能映射共用一致暗色 UI，改善背景、颜色和切换动效。基线 master 为 `3eb50e0eae6c720a28b59adf5e2da3e3601bc4b0`（PR #9 已合并，Verify #47 全绿），开发分支 `feat/unified-dark-workbench`。共享暗色 shell、项目节点重构、背景/动效和跨模式状态恢复均已实现；本地 332 单元测试、新 shell 69 项、原工作台 48 项、场景 41 项、CSP 6 个夹具与公开样本原五套浏览器检查通过。精确环境、产物来源与最后一次响应式修正见 `docs/checkpoints/CP33-unified-dark-workbench-implementation.md`，范围计划保留在 CP32。下一步是本轮 PR 的 Windows/Linux 与固定样本 CI；不要用 CP31 或基线 #47 代替。
+
 ## CP31：极简功能工作台已完成跨平台验收
 
 2026-10-22，用户选定的「极简工具」设计已接入正式离线渲染器：左图右阅读区、显式递归层级、搜索定位、状态恢复与进入/返回动效。开发分支 `feat/minimal-function-workbench`，PR [#9](https://github.com/yaelysia/RepoGraphia/pull/9)。实现 HEAD `039998876b722e35c22d7dd15c6cc05970842fbf` 的 [Verify #45](https://github.com/yaelysia/RepoGraphia/actions/runs/39728469228) 全部通过：Linux 332 pass；Windows 329 pass、3 项既有符号链接权限 skip；两平台各 48 项新工作台、41 项原场景及 6 组启动/CSP 检查通过，固定真实样本 gate 全绿。

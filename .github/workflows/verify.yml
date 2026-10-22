@@ -24,6 +24,7 @@ jobs:
       - run: node --check viewer/feature-map-view.js
       - run: node --check viewer/feature-scene-view.js
       - run: node --check viewer/feature-workbench-view.js
+      - run: node --check viewer/workbench-shell-view.js
       - run: node --check viewer/feature-migration-view.js
       - uses: actions/setup-python@v5
         with:
@@ -36,6 +37,7 @@ jobs:
       - run: python scripts/check-feature-scene.py reports/feature-scene
       - run: node tests/helpers/feature-workbench.mjs reports/feature-workbench
       - run: python scripts/check-feature-workbench.py reports/feature-workbench
+      - run: python scripts/check-workbench-shell.py reports/feature-workbench
       - uses: actions/upload-artifact@v4
         with:
           name: report-startup-${{ runner.os }}

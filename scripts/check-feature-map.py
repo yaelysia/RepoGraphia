@@ -101,7 +101,6 @@ with sync_playwright() as p:
     page.locator('.feature-review[data-decision="rejected"]').click()
     page.locator('.feature-detail-tabs [data-tab="about"]').click()
     check('已拒绝' in page.locator('#detail').inner_text(), 'explicit rejection remains visible')
-    page.locator('#feature-tree-toggle').click()
     page.locator('#project-tab').click()
     check(page.locator('#project-view').is_visible() and page.locator('#kind').is_enabled(), 'returning to project restores original controls')
     # Rename through the same edit API, then create another partial feature in memory.

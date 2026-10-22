@@ -3,6 +3,14 @@ import re
 
 
 def check_project_map(page, graph, check, output):
+    def navigation():
+        if not page.locator('.navigator').is_visible():
+            page.locator('#feature-tree-toggle').click()
+
+    def row(path=None):
+        navigation()
+        return page.locator(f'.project-row[data-path="{path}"]') if path else page.locator('.project-row').first
+
     test_path = re.compile(r'(^|/)(tests?|__tests__)/|\.(test|spec)\.[cm]?[jt]sx?$')
     files = {f['path'] for f in graph['files']} | {f['path'] for f in graph['coverage']['unindexed']}
     visible = {p for p in files if not test_path.search(p)}
@@ -41,6 +49,7 @@ def check_project_map(page, graph, check, output):
         check('aggregate opens original evidence', first_id in page.locator('#detail').inner_text() and '解析依据' in page.locator('#detail').inner_text())
         page.locator('.project-back').click()
         check('aggregate return restores membership and page', page.locator('.project-evidence').first.get_attribute('data-relation') == first_id)
+    navigation()
     page.locator('#show-tests').check()
     check('test opt-in restores recorded root paths',
           page.locator('.project-row').evaluate_all('(rows)=>rows.map(r=>r.dataset.path)') == sorted({p.split('/')[0] for p in files})[:60])
@@ -61,9 +70,9 @@ def check_project_map(page, graph, check, output):
         page.locator('.project-drill').click()
         check('directory drilldown advances scope', page.locator('#project-summary').get_attribute('data-scope') == 'src')
         check('directory-outside relations remain accessible', page.locator('.project-count[data-category="outside"]').count() == 1)
-        page.locator('.project-row[data-path="src/renderer"]').click()
+        row('src/renderer').click()
         page.locator('.project-drill').click()
-        page.locator('.project-row[data-path="src/renderer/App.tsx"]').click()
+        row('src/renderer/App.tsx').click()
         page.locator('.project-drill').click()
         check('directory-to-file reaches the existing symbol explorer', page.locator('#local-view').is_visible() and 'src/renderer/App.tsx' in page.locator('#detail').inner_text())
         # A file's child links still enter symbols, not a different graph dataset.
@@ -71,11 +80,11 @@ def check_project_map(page, graph, check, output):
         if child.count():
             child.click()
             check('file-to-function drilldown retains source evidence', '源码快照' in page.locator('#detail').inner_text())
-        page.locator('#return-project').click()
+        page.locator('#project-tab').click()
         check('return to project preserves last directory', page.locator('#project-summary').get_attribute('data-scope') == 'src/renderer')
         page.locator('#project-breadcrumb button').first.click()
     if 'electron' in expected_groups:
-        page.locator('.project-row[data-path="electron"]').click()
+        row('electron').click()
         page.locator('.project-drill').click()
         before = page.locator('.project-node').count()
         page.locator('#project-expand').click()
@@ -83,9 +92,9 @@ def check_project_map(page, graph, check, output):
         page.screenshot(path=str(output.with_name(output.stem + '-directory.png')), full_page=True)
         page.locator('#project-breadcrumb button').first.click()
     if 'collector' in expected_groups:
-        page.locator('.project-row[data-path="collector"]').click()
+        row('collector').click()
         page.locator('.project-drill').click()
-        page.locator('.project-row').first.click()
+        row().click()
         check('unindexed file is explicit and cannot navigate to fabricated code', page.locator('.project-drill').is_disabled() and 'unsupported-language' in page.locator('#detail').inner_text())
         page.locator('#project-breadcrumb button').first.click()
     page.set_viewport_size({'width': 430, 'height': 900})
