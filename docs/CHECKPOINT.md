@@ -1,5 +1,9 @@
 # RepoGraphia 当前检查点
 
+## 当前进行中：CP28 极简功能工作台
+
+2026-10-22，用户已选择「极简工具」设计并授权正式落地。当前分支 `feat/minimal-function-workbench`，远端 master 基线已核对为 `d277ab5d6cdf03e40f7d6fdfafc810ae51e5c939`。先读 `docs/checkpoints/CP28-minimal-workbench-plan.md`；本阶段是实施计划，不是已完成验收。以下 CP27 保留为已合入的上一阶段记录。
+
 ## CP27：功能节点、关联代码子图与分层审阅完成
 
 2026-10-21。本轮实现与锁定版本的 Windows/Linux 验收已完成，PR #8。开发分支为 `feat/readable-feature-map`，基线 master 为 `470be6c73654991e0d43090a30f27ac428a7e8fc`。最终文档 HEAD、后续 CI 和合并结果记录在 PR #8 评论；接手先核对 PR/分支状态，合并后从 master 继续，不重复实现。
