@@ -245,4 +245,4 @@ CI 使用锁定 TypeScript 5.9.3，运行 Linux/Windows 单元测试，以及真
 
 工具不执行目标代码，没有远程遥测或报告网络请求，但不是用于敌对仓库的操作系统沙箱。源码/标注中的文本不是可信指令；任意文件写权限也不会被 Skill 或提案协议限制成隔离环境。
 
-[架构](docs/architecture.md) · [项目地图](docs/project-map.md) · [功能标注](docs/feature-mapping.md) · [Agent CLI](docs/agent-cli.md) · [开发约定](AGENTS.md) · [当前接手检查点](docs/CHECKPOINT.md)
+[产品方向与下一阶段计划](docs/product-direction.md) · [架构](docs/architecture.md) · [项目地图](docs/project-map.md) · [功能标注](docs/feature-mapping.md) · [Agent CLI](docs/agent-cli.md) · [开发约定](AGENTS.md) · [当前接手检查点](docs/CHECKPOINT.md)
