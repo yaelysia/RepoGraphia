@@ -1,5 +1,11 @@
 # RepoGraphia 当前检查点
 
+## CP31：极简功能工作台已完成跨平台验收
+
+2026-10-22，用户选定的「极简工具」设计已接入正式离线渲染器：左图右阅读区、显式递归层级、搜索定位、状态恢复与进入/返回动效。开发分支 `feat/minimal-function-workbench`，PR [#9](https://github.com/yaelysia/RepoGraphia/pull/9)。实现 HEAD `039998876b722e35c22d7dd15c6cc05970842fbf` 的 [Verify #45](https://github.com/yaelysia/RepoGraphia/actions/runs/39728469228) 全部通过：Linux 332 pass；Windows 329 pass、3 项既有符号链接权限 skip；两平台各 48 项新工作台、41 项原场景及 6 组启动/CSP 检查通过，固定真实样本 gate 全绿。
+
+先读 `docs/checkpoints/CP31-minimal-workbench-validation.md`、`docs/feature-map-visual.md`；CP28/29/30 保留设计、层级契约和实现过程。本检查点只新增验收/接手文档，不再改变实现；最终文档 HEAD 的 CI、合并提交和合并后 CI 另在 PR #9 描述中核对，不用 #45 代替。接手先核对远端最新 master 与 PR 状态；合并后直接使用 master，不重复开发。旧 schema 1/2 标注可直接重渲染，但不会自动获得未标注的子功能。以下 CP27 保留为上一阶段记录。
+
 ## CP27：功能节点、关联代码子图与分层审阅完成
 
 2026-10-21。本轮实现与锁定版本的 Windows/Linux 验收已完成，PR #8。开发分支为 `feat/readable-feature-map`，基线 master 为 `470be6c73654991e0d43090a30f27ac428a7e8fc`。最终文档 HEAD、后续 CI 和合并结果记录在 PR #8 评论；接手先核对 PR/分支状态，合并后从 master 继续，不重复实现。

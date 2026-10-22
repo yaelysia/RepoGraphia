@@ -96,7 +96,7 @@ export function createFeatureMigrationApi(api: ReturnType<typeof createFeatureMa
     }
     require([...actions.values()].some(a=>a.action !== 'defer'), 'select at least one carry or replacement');
     const result = clone(map), capture = api.anchors(newGraph);
-    result.schemaVersion = 2; result.basis = clone(p.to);
+    result.schemaVersion = map.schemaVersion === 3 ? 3 : 2; result.basis = clone(p.to);
     result.mappings = map.mappings.map(m => {
       const a = actions.get(m.id);
       if (!a || a.action === 'defer') return {...clone(m), basis:clone(m.basis ?? map.basis)};

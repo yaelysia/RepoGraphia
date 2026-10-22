@@ -4,6 +4,8 @@ export type ReviewDecision = 'proposed' | 'accepted' | 'rejected';
 export type MappingRole = 'entry' | 'implementation' | 'support' | 'test';
 export interface Feature {
   id: string; title: string; description: string; questions: string[];
+  /** Author-declared short explanation and containment; neither is inferred from code. */
+  summary?: string; parentId?: string;
 }
 export interface CodeAnchor {
   nodeId: string; file: string; fileHash: string; start: number; end: number;
@@ -20,11 +22,11 @@ export interface FeatureBasis {
 export interface FeatureMapping {
   id: string; featureId: string; code: CodeAnchor; role: MappingRole;
   rationale: string; evidence: RelationAnchor[]; decision: ReviewDecision;
-  /** Required in schema 2: deferred annotations retain their original snapshot. */
+  /** Required in schemas 2/3: deferred annotations retain their original snapshot. */
   basis?: FeatureBasis;
 }
 export interface FeatureMap {
-  schemaVersion: 1 | 2; revision: number;
+  schemaVersion: 1 | 2 | 3; revision: number;
   basis: FeatureBasis;
   features: Feature[]; mappings: FeatureMapping[];
   /** User-declared local history, NOT authenticated identity or a tamper-proof audit log. */
@@ -71,9 +73,52 @@ export function createFeatureMapApi() {
     require(!x.includes('\\') && !x.startsWith('/') && !/^[A-Za-z]:/.test(x) &&
       x.split('/').every(p => p && p !== '.' && p !== '..'), 'invalid relative path');
   }
-  function feature(x: unknown) {
-    const f = object(x, ['id','title','description','questions']); id(f.id); text(f.title, 'title', 200);
+  function feature(x: unknown, nested = false) {
+    const f = object(x, ['id','title','description','questions', ...(nested ? ['summary','parentId'] : [])]); id(f.id); text(f.title, 'title', 200);
     text(f.description, 'description'); array(f.questions, 100); f.questions.forEach(q => text(q, 'question', 2000));
+    if ('summary' in f) text(f.summary, 'summary', 200);
+    if ('parentId' in f) id(f.parentId);
+  }
+  function sameFeatureMeaning(a: Feature, b: Feature) {
+    return a.title === b.title && a.description === b.description && a.summary === b.summary && a.parentId === b.parentId &&
+      a.questions.length === b.questions.length && a.questions.every((question, i) => question === b.questions[i]);
+  }
+  /** Explicit containment forest, shared by authoring and navigation. Depth follows the data. */
+  function hierarchy(features: Feature[]) {
+    array(features, 1000);
+    const byId = new Map<string, Feature>(), groups = new Map<string | null, Feature[]>();
+    for (const f of features) {
+      feature(f, true); require(!byId.has(f.id), 'duplicate feature id'); byId.set(f.id, f);
+      const key = f.parentId ?? null, children = groups.get(key) ?? [];
+      children.push(f); groups.set(key, children);
+    }
+    for (const f of features) if (f.parentId !== undefined) {
+      require(byId.has(f.parentId), 'unknown parent feature');
+      require(f.parentId !== f.id, 'feature cannot contain itself');
+    }
+    const complete = new Set<string>();
+    for (const f of features) {
+      const visiting = new Set<string>(); let current: Feature | undefined = f;
+      while (current && !complete.has(current.id)) {
+        require(!visiting.has(current.id), 'cyclic feature hierarchy'); visiting.add(current.id);
+        current = current.parentId === undefined ? undefined : byId.get(current.parentId);
+      }
+      for (const id of visiting) complete.add(id);
+    }
+    const children = (parentId: string | null = null): Feature[] => [...(groups.get(parentId) ?? [])];
+    function path(id: string): Feature[] {
+      require(byId.has(id), 'unknown feature');
+      const result: Feature[] = []; let current = byId.get(id);
+      while (current) { result.push(current); current = current.parentId === undefined ? undefined : byId.get(current.parentId); }
+      return result.reverse();
+    }
+    function descendants(id: string): Feature[] {
+      require(byId.has(id), 'unknown feature');
+      const result: Feature[] = [], stack = children(id).reverse();
+      while (stack.length) { const f = stack.pop()!; result.push(f); stack.push(...children(f.id).reverse()); }
+      return result;
+    }
+    return { children, path, descendants };
   }
   function anchor(x: unknown, relation: boolean) {
     const r = object(x, relation ? ['relationId','file','fileHash','start','end','kind','status','typeOnly','from','targets','rule'] :
@@ -87,14 +132,15 @@ export function createFeatureMapApi() {
   function validate(input: unknown): FeatureMap {
     require(JSON.stringify(input)?.length <= 5 * 1024 * 1024, 'document exceeds 5 MiB character budget');
     const m = object(input, ['schemaVersion','revision','basis','features','mappings','history']);
-    require(m.schemaVersion === 1 || m.schemaVersion === 2, 'unsupported schema'); integer(m.revision, 'revision');
+    require(m.schemaVersion === 1 || m.schemaVersion === 2 || m.schemaVersion === 3, 'unsupported schema'); integer(m.revision, 'revision');
     validateBasis(m.basis);
-    array(m.features, 1000); m.features.forEach(feature);
+    array(m.features, 1000); m.features.forEach(f => feature(f, m.schemaVersion === 3));
     const features = m.features as Feature[]; unique(features.map(f => f.id));
+    if (m.schemaVersion === 3) hierarchy(features);
     array(m.mappings);
     for (const item of m.mappings) {
-      const r = object(item, ['id','featureId','code','role','rationale','evidence','decision', ...(m.schemaVersion === 2 ? ['basis'] : [])]);
-      if (m.schemaVersion === 2) validateBasis(r.basis);
+      const r = object(item, ['id','featureId','code','role','rationale','evidence','decision', ...(m.schemaVersion !== 1 ? ['basis'] : [])]);
+      if (m.schemaVersion !== 1) validateBasis(r.basis);
       id(r.id); require(features.some(f => f.id === r.featureId), 'unknown feature'); anchor(r.code, false);
       member(r.role, roles, 'role'); text(r.rationale, 'rationale'); member(r.decision, decisions, 'decision');
       array(r.evidence, 100); r.evidence.forEach(e => anchor(e, true));
@@ -106,7 +152,7 @@ export function createFeatureMapApi() {
       const h = object(item, ['revision','actor','actorKind','at','reason','operation','subject','before','after']);
       require(h.revision === i + 1, 'nonsequential edit history'); text(h.actor, 'actor', 200);
       member(h.actorKind, ['manual','agent'], 'actorKind'); timestamp(h.at); text(h.reason, 'edit reason');
-      member(h.operation, ['feature','mapping','review', ...(m.schemaVersion === 2 ? ['migration'] : [])], 'operation'); id(h.subject);
+      member(h.operation, ['feature','mapping','review', ...(m.schemaVersion !== 1 ? ['migration'] : [])], 'operation'); id(h.subject);
       require('before' in h && 'after' in h, 'history values missing');
     });
     return clone(input as FeatureMap);
@@ -201,11 +247,15 @@ export function createFeatureMapApi() {
     member(ctx.actorKind, ['manual','agent'], 'actorKind'); timestamp(ctx.at); text(ctx.reason, 'edit reason');
     let subject: string, before: unknown = null, after: unknown;
     if (operation.op === 'feature') {
-      object(operation, ['op','feature']); feature(operation.feature); subject = operation.feature.id;
+      object(operation, ['op','feature']); feature(operation.feature, true); subject = operation.feature.id;
+      if (map.schemaVersion !== 3 && ('summary' in operation.feature || 'parentId' in operation.feature)) {
+        map.schemaVersion = 3;
+        map.mappings = map.mappings.map(m => ({ ...m, basis: clone(m.basis ?? map.basis) }));
+      }
       const old = map.features.find(f => f.id === subject); before = old ?? null; after = clone(operation.feature);
       map.features = [...map.features.filter(f => f.id !== subject), after as Feature];
-      // Changing the meaning of a feature invalidates all earlier acceptance decisions.
-      if (old && JSON.stringify(old) !== JSON.stringify(after))
+      // JSON object-key order is not a semantic edit; question order remains authored content.
+      if (old && !sameFeatureMeaning(old, operation.feature))
         map.mappings = map.mappings.map(m => m.featureId === subject && m.decision === 'accepted' ? { ...m, decision: 'proposed' } : m);
     } else if (operation.op === 'mapping') {
       object(operation, ['op','id','featureId','nodeId','role','rationale','relationIds']);
@@ -215,7 +265,7 @@ export function createFeatureMapApi() {
       const captured = anchors(g)(operation.nodeId, operation.relationIds);
       subject = operation.id; before = map.mappings.find(m => m.id === subject) ?? null;
       after = { id: subject, featureId: operation.featureId, role: operation.role, rationale: operation.rationale,
-        ...captured, ...(map.schemaVersion === 2 ? { basis: basis(g) } : {}), decision: 'proposed' } satisfies FeatureMapping;
+        ...captured, ...(map.schemaVersion !== 1 ? { basis: basis(g) } : {}), decision: 'proposed' } satisfies FeatureMapping;
       map.mappings = [...map.mappings.filter(m => m.id !== subject), after as FeatureMapping];
       const assessment = assess(g, map).mappings.find(m => m.mapping.id === subject)!;
       require(assessment.current, assessment.issues.join(', '));
@@ -233,5 +283,5 @@ export function createFeatureMapApi() {
       reason: context.reason, operation: operation.op, subject, before, after });
     return validate(map);
   }
-  return { create, validate, assess, forNode, edit, anchors, basis };
+  return { create, validate, assess, forNode, edit, anchors, basis, hierarchy };
 }

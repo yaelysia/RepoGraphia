@@ -1,11 +1,11 @@
 /** Two-phase, offline migration review. Neither uploaded graph nor original sidecar is overwritten. */
-function createFeatureMigrationView({graph,api,getDocument,onApplied,make,button,fields,context,editContext,notice}) {
+function createFeatureMigrationView({graph,api,getDocument,onApplied,onInspect,make,button,fields,context,editContext,notice}) {
   const $=id=>document.getElementById(id),panel=$('feature-migration');
   const labels={reusable:'锚点可复用', 'needs-review':'需要重新审阅',unmatched:'无可匹配锚点'};
   const roleNames={entry:'入口',implementation:'实现',support:'支撑',test:'测试代码'};
   let oldGraph=null,plan=null,sourceDoc=null,choices=new Map(),page=0,preview=null;
   function hidePreview(){preview=null;const out=$('migration-preview');if(out)out.replaceChildren();}
-  function close(){panel.hidden=true;for(const id of ['feature-cards','feature-selected','feature-mappings'])$(id).hidden=false;}
+  function close(){panel.hidden=true;const code=$('feature-view').dataset.mode==='code';$('feature-cards').hidden=code;$('feature-mappings').hidden=!code;$('feature-selected').hidden=true;}
   function open(){
     panel.hidden=false;for(const id of ['feature-cards','feature-selected','feature-mappings'])$(id).hidden=true;
     panel.replaceChildren(make('h3','跨快照迁移 · 先预览，再确认'),
@@ -44,6 +44,7 @@ function createFeatureMigrationView({graph,api,getDocument,onApplied,make,button
     $('migration-pager').append(previous,make('span',` ${page+1} / ${Math.max(1,Math.ceil(plan.rows.length/25))} · 每页25条 `),next);
   }
   function inspect(row){
+    onInspect?.();
     const box=$('detail');box.replaceChildren(make('h3',row.code.name),make('p',labels[row.status]),make('p',row.code.file,'meta'),
       make('p',row.reasons.length?row.reasons.join('；'):'实体、源码哈希与已记录静态邻域匹配；不是业务等价证明。','callout'));
     context(box);
@@ -80,7 +81,7 @@ function createFeatureMigrationView({graph,api,getDocument,onApplied,make,button
       preview=api.apply(oldGraph,graph,sourceDoc,request,editContext());
       const migrated=preview.mappings.filter(m=>m.basis.snapshot===graph.project.snapshot).length,box=$('migration-preview');
       box.replaceChildren(make('h4','迁移预览（尚未生效）'),make('p',`${migrated} 条迁入当前快照；${preview.mappings.length-migrated} 条暂缓，保留旧快照并继续标为失效。`),
-        make('p','输出升级为 FeatureMap schema 2。历史记录保留旧锚点与旧决定；迁入的旧接受退回待审，拒绝不自动撤销。'),
+        make('p',`输出为 FeatureMap schema ${preview.schemaVersion}。历史记录保留旧锚点与旧决定；迁入的旧接受退回待审，拒绝不自动撤销。`),
         button('确认迁移到内存草稿',()=>{
           if(!preview||sourceDoc!==getDocument()){hidePreview();notice('预览已过期，请重新生成计划。');return;}
           const result=preview;hidePreview();onApplied(result);close();plan=null;oldGraph=null;sourceDoc=null;

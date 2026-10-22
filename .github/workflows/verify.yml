@@ -23,6 +23,7 @@ jobs:
       - run: node --check viewer/project-map-view.js
       - run: node --check viewer/feature-map-view.js
       - run: node --check viewer/feature-scene-view.js
+      - run: node --check viewer/feature-workbench-view.js
       - run: node --check viewer/feature-migration-view.js
       - uses: actions/setup-python@v5
         with:
@@ -33,12 +34,15 @@ jobs:
       - run: python scripts/check-report-startup.py reports/startup
       - run: node tests/helpers/feature-scene.mjs reports/feature-scene
       - run: python scripts/check-feature-scene.py reports/feature-scene
+      - run: node tests/helpers/feature-workbench.mjs reports/feature-workbench
+      - run: python scripts/check-feature-workbench.py reports/feature-workbench
       - uses: actions/upload-artifact@v4
         with:
           name: report-startup-${{ runner.os }}
           path: |
             reports/startup
             reports/feature-scene
+            reports/feature-workbench
           retention-days: 7
           if-no-files-found: error
       - name: Archive the exact tested source (no credentials or working files)

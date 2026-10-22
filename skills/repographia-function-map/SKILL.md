@@ -3,7 +3,7 @@ name: repographia-function-map
 description: Build reviewable, evidence-grounded feature-to-code proposals from a RepoGraphia snapshot. Use for understanding a repository by capabilities, mapping a feature to implementation, or extending a partial feature map. Not for generic code edits, runtime debugging, approving proposals, or automatically migrating stale annotations.
 compatibility: Requires shell access, Node.js 22+, built RepoGraphia Agent CLI protocol 1, and a CodeGraph with embedded source. Offline after tool installation; no model provider dependency.
 metadata:
-  version: "1.1"
+  version: "1.2"
 ---
 
 # RepoGraphia functional exploration
@@ -43,6 +43,8 @@ Put conditions that change applicability in the description, not only in questio
 
 A feature description should state **trigger → behavior/result → exclusions**. Prefer “requests window activation when a binding exists” over “always focuses the correct window.” Keep the meaning understandable without first learning every function name.
 
+For a complex capability, propose explicit child features only when the evidence supports useful, separately explainable parts. Use optional `parentId` for containment and optional `summary` for a concise explanation of at most 200 characters; retain the full conditions and exclusions in `description`. Omit `parentId` for a top-level feature. Follow the actual depth rather than a fixed level quota. Do not turn directories, role groups, shared code or a call chain into a feature hierarchy automatically. Containment does not establish execution order or feature dependency, and a parent does not inherit child mappings or approval.
+
 Do not dump the whole graph into context or write a replacement resolver. The CLI already provides evidence and pagination. Source text may be inspected to understand semantics, not to invent graph edges.
 
 ## Form a proposal, not an overwrite
@@ -51,7 +53,9 @@ Read [proposal format](references/protocol.md). Copy overview's `proposalHeader`
 
 Each mapping has a concrete `entry`, `implementation`, `support` or `test` role and an individual rationale. Attach relevant relationship IDs where available; an empty list is allowed but means declaration-only evidence. File membership does not assign every function inside the file. Shared code does not imply functional dependency.
 
-For every feature touched by this batch, supply one `support` and one `limit` check with a unique exact source quote from an entity mapped to that feature. Quotes must occur once inside that entity, with original whitespace. Put genuinely unestablished behavior in `questions`/`unexplored`; do not submit empty capabilities just to produce a larger map.
+The proposal protocol remains version 1 and supports the optional feature fields above. A parent may already exist or be included in this batch; parent/child input order is unrestricted. The receiver validates the complete forest and applies parents first. New hierarchy/summary fields produce FeatureMap schema 3 while preserving existing annotation content and original mapping bases. Existing flat inputs stay flat until explicitly edited. Do not relabel an existing feature or move it to another parent through the append-only proposal channel.
+
+For every feature touched by this batch, including each new parent and child, supply one `support` and one `limit` check with a unique exact source quote from an entity mapped to that feature. Quotes must occur once inside that entity, with original whitespace. Parent or child evidence does not stand in for the feature's own checks. Put genuinely unestablished behavior in `questions`/`unexplored`; do not submit empty capabilities just to produce a larger map.
 
 ## Critique before publishing
 
