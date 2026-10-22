@@ -29,7 +29,16 @@ with sync_playwright() as p:
             page.set_content(report.read_text(encoding='utf-8'), wait_until='load')
         else:
             page.goto(report.as_uri())
-        page.wait_for_selector('.node-row')
+        page.wait_for_selector('.project-node')
+
+    def navigation():
+        if not page.locator('.navigator').is_visible():
+            page.locator('#feature-tree-toggle').click()
+
+    def tab(selector):
+        navigation()
+        page.locator(selector).click()
+        navigation()
 
     load(Path(args.report).resolve())
     data = json.loads(page.locator('#graph-data').text_content())
@@ -38,7 +47,7 @@ with sync_playwright() as p:
     check('analysis revision', f'分析规则 {revision}' in page.locator('#revision').inner_text())
     check('map nodes', page.locator('#map .node').count() > 0)
     page.screenshot(path=args.output, full_page=True)
-    page.locator('#symbols-tab').click()
+    tab('#symbols-tab')
     check('symbol navigation', page.locator('.node-row').count() > 0)
     page.locator('.node-row').first.click()
     page.locator('#status').select_option('unresolved')
@@ -47,7 +56,7 @@ with sync_playwright() as p:
     page.locator('#search').fill('this-query-does-not-exist')
     check('empty search', page.locator('.node-row').count() == 0)
     page.locator('#search').fill('')
-    page.locator('#files-tab').click()
+    tab('#files-tab')
     page.locator('.node-row').first.click()
     if page.locator('.edge-row').count():
         page.locator('.edge-row').first.click()
@@ -56,7 +65,7 @@ with sync_playwright() as p:
     check('zoom', page.locator('#map').get_attribute('viewBox') != '0 0 1000 650')
     page.locator('#fit').click()
     check('fit', page.locator('#map').get_attribute('viewBox') == '0 0 1000 650')
-    page.locator('#gaps-tab').click()
+    tab('#gaps-tab')
     check('analysis boundaries', page.locator('.gap').count() > 0)
     check('reason groups from shared summary', page.locator('.reason-group').count() == len(summary['groups']) > 0)
     group = summary['groups'][0]
@@ -80,8 +89,9 @@ with sync_playwright() as p:
         by_id = {n['id']: n for n in data['nodes']}
         chosen = next(e for e in origins if by_id[e['from']]['kind'] != 'file')
         owner = by_id[chosen['from']]
+        navigation()
         page.locator('#show-tests').check()
-        page.locator('#symbols-tab').click()
+        tab('#symbols-tab')
         page.locator('#search').fill(owner['name'])
         row = page.locator('.node-row[data-node="' + owner['id'] + '"]')
         while not row.count() and page.locator('#more').is_visible():
@@ -109,7 +119,7 @@ with sync_playwright() as p:
     if args.legacy_report:
         load(Path(args.legacy_report).resolve())
         check('legacy revision remains unspecified', '分析规则 未标注（旧报告）' in page.locator('#revision').inner_text())
-        page.locator('#gaps-tab').click()
+        tab('#gaps-tab')
         check('legacy reasons remain unclassified', page.locator('.reason-group').count() == 1 and
               page.locator('.reason-group').first.get_attribute('data-reason') == 'unclassified')
         page.locator('.reason-group').first.click()

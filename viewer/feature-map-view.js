@@ -1,5 +1,5 @@
 /** Editable semantic sidecar, explicit hierarchy and a read-only underlying code graph. */
-function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,make,button,onNode,onEvidence,onActivate}) {
+function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,make,button,onNode,onEvidence,onActivate,shell}) {
   const $=id=>document.getElementById(id),panel=$('feature-view');
   const migrationButton=make('button','跨快照迁移');migrationButton.id='feature-migrate';panel.querySelector('.feature-actions').append(migrationButton);
   const migrationPanel=make('section');migrationPanel.id='feature-migration';migrationPanel.hidden=true;$('feature-cards').before(migrationPanel);
@@ -30,7 +30,7 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
   function fold(box,title,cls='',open=false){const d=make('details',null,'feature-fold '+cls);d.open=open;d.append(make('summary',title));box.append(d);return d;}
   function saveInspector(){
     if(!inspectorKey)return;
-    inspections.set(inspectorKey,{tab:detailTab,scroll:$('detail').scrollTop,
+    inspections.set(inspectorKey,{tab:detailTab,scroll:$('detail').scrollTop,outerScroll:document.querySelector('.inspector').scrollTop,
       folds:[...$('detail').querySelectorAll('.feature-fold')].map(d=>({name:d.className,open:d.open}))});
   }
   function remember(){saveInspector();const previous=scopes.get(scopeKey());scopes.set(scopeKey(),{mode,selected,selectedMapping:mode==='code'?selectedMapping:previous?.selectedMapping||null,detailTab});}
@@ -43,7 +43,7 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
     inspectorKey=key;detailTab=inspections.get(key)?.tab||'about';
     const box=$('detail'),tabs=make('div',null,'feature-detail-tabs'),header=make('div',null,'feature-detail-header'),heading=make('div');
     heading.append(make('span',eyebrow,'eyebrow'),make('h3',title));
-    const close=button('×',()=>workbench.closeDetails());close.setAttribute('aria-label','收起阅读区');header.append(heading,close);
+    header.append(heading);
     for(const [id,label]of [['about','说明'],['evidence','依据'],['review','审阅']]){
       const b=button(label,()=>{setDetailTab(id);saveInspector();});b.dataset.tab=id;tabs.append(b);
     }
@@ -53,10 +53,10 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
   }
   function finishInspector(){
     const saved=inspections.get(inspectorKey);
-    if(saved){for(const d of $('detail').querySelectorAll('.feature-fold')){const f=saved.folds.find(x=>x.name===d.className);if(f)d.open=f.open;}$('detail').scrollTop=saved.scroll;}
+    if(saved){for(const d of $('detail').querySelectorAll('.feature-fold')){const f=saved.folds.find(x=>x.name===d.className);if(f)d.open=f.open;}$('detail').scrollTop=saved.scroll;document.querySelector('.inspector').scrollTop=saved.outerScroll||0;}
   }
   const sceneView=createFeatureSceneView({graph,make,button,onFeature:showFeature,onMapping:showMapping,onRelations:showRelations});
-  const workbench=createFeatureWorkbenchView({graph,api,make,button,onSelect:showFeature,
+  const workbench=createFeatureWorkbenchView({graph,api,make,button,shell,onSelect:showFeature,
     onEnter:(id,requested)=>navigate(id,requested),onCode:id=>navigate(id,'code'),
     onParent:()=>{if(scopeId){const exited=scopeId,parent=doc.features.find(f=>f.id===scopeId)?.parentId||null;navigate(parent,undefined,{returning:true,selectId:exited});}},
     onMode:next=>navigate(scopeId,next),onJump:id=>jump(id)});
@@ -70,7 +70,7 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
   function refresh(){
     normalizeView();
     const s=report.summary;$('feature-summary').textContent=`${s.features} 个功能提案 · ${s.mappings} 条映射 · ${s.stale} 条失效 · 文档版本 ${doc.revision}${dirty?' · 未保存草稿':''}`;
-    workbench.render(report,{scopeId,mode,selected});renderList($('search').value,60);
+    workbench.render(report,{scopeId,mode,selected});renderList('',60);
     if(mode==='code'&&scopeId)sceneView.show(doc.features.find(f=>f.id===scopeId),report);else sceneView.leave();
   }
   function renderInspector(){
@@ -86,7 +86,7 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
     selected=selectId||saved?.selected||id;selectedMapping=mode==='code'?saved?.selectedMapping||null:null;
     if(mode==='code')selected=id;
     if(selected)workbench.showDetails();
-    refresh();renderInspector();workbench.transition(returning,snapshot);if(locate&&selected)workbench.locate(selected);
+    refresh();renderInspector();workbench.transition(returning,snapshot);if(locate&&selected)workbench.locate(selected);else shell.revealMap();
   }
   function jump(id){const f=doc.features.find(f=>f.id===id);if(f)navigate(f.parentId||null,'features',{selectId:id,locate:true});}
   function enter(){
@@ -100,7 +100,7 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
     const items=report.features.filter(f=>`${f.title} ${f.summary||''} ${f.description} ${f.id}`.toLowerCase().includes(q));
     $('list-count').textContent=items.length;$('more').hidden=items.length<=limit;
     $('node-list').replaceChildren(...items.slice(0,limit).map(f=>{
-      const b=button('',()=>{jump(f.id);document.body.classList.remove('feature-tree-open');$('feature-tree-toggle').setAttribute('aria-expanded','false');},'node-row'+(selected===f.id?' active':''));
+      const b=button('',()=>{jump(f.id);shell.toggleNavigation(false,false);},'node-row'+(selected===f.id?' active':''));
       b.dataset.feature=f.id;b.append(make('strong',f.title));const path=hierarchy.path(f.id).slice(0,-1);if(path.length)b.append(make('small',path.map(x=>x.title).join(' / ')));return b;
     }));
   }
@@ -115,7 +115,7 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
     const f=doc.features.find(f=>f.id===id);if(!f)return;
     if(id!==scopeId&&(f.parentId||null)!==scopeId){jump(id);return;}
     saveInspector();migrationView.close();selected=id;selectedMapping=null;
-    sceneView.select(null);workbench.select(id);renderList($('search').value,60);renderFeature(id);workbench.showDetails();
+    sceneView.select(null);workbench.select(id);renderList('',60);renderFeature(id);workbench.showDetails();
   }
   function renderFeature(id){
     const f=doc.features.find(f=>f.id===id);if(!f)return;
@@ -151,7 +151,7 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
   function showMapping(id){
     const item=report.mappings.find(m=>m.mapping.id===id);if(!item)return;
     if(scopeId!==item.mapping.featureId||mode!=='code')navigate(item.mapping.featureId,'code');
-    saveInspector();migrationView.close();selected=item.mapping.featureId;selectedMapping=id;sceneView.select(id);renderList($('search').value,60);renderMapping(id);workbench.showDetails();
+    saveInspector();migrationView.close();selected=item.mapping.featureId;selectedMapping=id;sceneView.select(id);renderList('',60);renderMapping(id);workbench.showDetails();
   }
   function renderMapping(id){
     const item=report.mappings.find(m=>m.mapping.id===id);if(!item)return;

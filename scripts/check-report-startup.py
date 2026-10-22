@@ -35,15 +35,21 @@ with sync_playwright() as p:
             assert page.locator('#project-map .project-node').count() == 2, name
             assert page.locator('#viewer-startup').count() == 0, name
             assert page.locator('#metrics .metric').count() == 4, name
+            page.locator('#feature-tree-toggle').click()
             page.locator('#files-tab').click()
+            if not page.locator('.navigator').is_visible():
+                page.locator('#feature-tree-toggle').click()
             assert page.locator('.node-row').count() == 2, name
             page.locator('.node-row').first.click()
+            if not page.locator('.navigator').is_visible():
+                page.locator('#feature-tree-toggle').click()
             page.locator('#symbols-tab').click()
+            if not page.locator('.navigator').is_visible():
+                page.locator('#feature-tree-toggle').click()
             assert page.locator('.node-row').count() == 2, name
             page.locator('.node-row').first.click()
             page.locator('#features-tab').click()
             assert page.locator('#feature-view').is_visible(), name
-            page.locator('#feature-tree-toggle').click()
             page.locator('#project-tab').click()
             assert page.locator('#project-map .project-node').count() == 2, name
             assert not console_errors, console_errors

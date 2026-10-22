@@ -1,8 +1,8 @@
 # RepoGraphia 当前检查点
 
-## CP32：统一暗色工作台正在实施
+## CP33：统一暗色工作台已实现，等待跨平台 CI
 
-2026-10-22，用户要求项目地图与功能映射共用一致暗色 UI，改善背景、颜色和切换动效。已核对远端/本地 master 为 `3eb50e0eae6c720a28b59adf5e2da3e3601bc4b0`（PR #9 已合并，合并后 Verify #47 全绿）。新分支 `feat/unified-dark-workbench`，范围与验收计划见 `docs/checkpoints/CP32-unified-dark-workbench-plan.md`。此阶段完成截图和实现审计，尚未完成新实现验证；不要把 CP31 的通过结果作为本轮验收。
+2026-10-22，用户要求项目地图与功能映射共用一致暗色 UI，改善背景、颜色和切换动效。基线 master 为 `3eb50e0eae6c720a28b59adf5e2da3e3601bc4b0`（PR #9 已合并，Verify #47 全绿），开发分支 `feat/unified-dark-workbench`。共享暗色 shell、项目节点重构、背景/动效和跨模式状态恢复均已实现；本地 332 单元测试、新 shell 69 项、原工作台 48 项、场景 41 项、CSP 6 个夹具与公开样本原五套浏览器检查通过。精确环境、产物来源与最后一次响应式修正见 `docs/checkpoints/CP33-unified-dark-workbench-implementation.md`，范围计划保留在 CP32。下一步是本轮 PR 的 Windows/Linux 与固定样本 CI；不要用 CP31 或基线 #47 代替。
 
 ## CP31：极简功能工作台已完成跨平台验收
 

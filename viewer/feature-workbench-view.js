@@ -1,5 +1,5 @@
 /** Offline function navigation. Only explicit parentId links become containment lines. */
-function createFeatureWorkbenchView({graph, api, make, button, onSelect, onEnter, onCode, onParent, onMode, onJump}) {
+function createFeatureWorkbenchView({graph, api, make, button, onSelect, onEnter, onCode, onParent, onMode, onJump, shell}) {
   const $=id=>document.getElementById(id), panel=$('feature-view'), host=$('feature-cards');
   const svg=(tag,attrs={})=>{const n=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const [k,v]of Object.entries(attrs))n.setAttribute(k,String(v));return n;};
   const motion=matchMedia('(prefers-reduced-motion: reduce)'), cameras=new Map(), pages=new Map();
@@ -7,24 +7,21 @@ function createFeatureWorkbenchView({graph, api, make, button, onSelect, onEnter
   let cameraFrame=0, cameraTarget=null, drag=null, size=null, searchLimit=12;
   const key=()=>scopeId, caption=f=>f.summary||f.description, compact=(text,limit)=>Array.from(text).length>limit?Array.from(text).slice(0,limit).join('')+'…':text;
   const nav=make('nav',null,'feature-workbench-nav');nav.setAttribute('aria-label','功能图导航');
-  const tree=button('☰ 功能树',()=>toggleTree(),'feature-tool');tree.id='feature-tree-toggle';tree.setAttribute('aria-expanded','false');
   const back=button('← 上一层',()=>onParent(),'feature-tool');back.id='feature-parent';
-  const crumbs=make('nav');crumbs.id='feature-breadcrumb';crumbs.setAttribute('aria-label','功能层级路径');nav.append(tree,back,crumbs);
+  const crumbs=make('nav');crumbs.id='feature-breadcrumb';crumbs.setAttribute('aria-label','功能层级路径');nav.append(back,crumbs);
   const heading=make('div',null,'feature-workbench-heading'),titles=make('div',null,'feature-workbench-titles'),title=make('h2'),summary=make('p');title.id='feature-scope-title';summary.id='feature-scope-summary';titles.append(title,summary);
   const switches=make('div');switches.id='feature-map-mode';
   for(const [value,label]of [['features','子功能'],['code','关联代码']]){const b=button(label,()=>onMode(value));b.dataset.mode=value;switches.append(b);}
-  const details=button('说明',()=>showDetails(),'feature-tool');details.id='feature-detail-toggle';heading.append(titles,switches,details);
+  heading.append(titles,switches);
   const files=make('details',null,'feature-document-tools');files.append(make('summary','标注与文件'),panel.querySelector('.feature-actions'));
   const about=make('details',null,'feature-about');about.append(make('summary','阅读范围与保存说明'),panel.querySelector('.callout'));
   panel.prepend(nav,heading);$('feature-summary').before(files);files.append($('feature-summary'),about);
   $('feature-selected').classList.add('feature-sr-only');
   const searchBox=make('div',null,'feature-search'),search=make('input'),results=make('div',null,'feature-search-results');
   search.id='feature-search';search.type='search';search.placeholder='搜索功能或说明…';search.setAttribute('aria-label','全局搜索功能名称和说明');search.setAttribute('aria-expanded','false');search.setAttribute('aria-controls','feature-search-results');
-  results.id='feature-search-results';results.hidden=true;searchBox.append(search,results);document.querySelector('.topbar .brand').after(searchBox);
-  const closeTree=button('关闭',()=>toggleTree(false),'feature-tool');closeTree.id='feature-tree-close';document.querySelector('.navigator .section-label').append(closeTree);
-  function toggleTree(open=!document.body.classList.contains('feature-tree-open')){document.body.classList.toggle('feature-tree-open',open);tree.setAttribute('aria-expanded',String(open));if(open)$('search').focus();else tree.focus();}
-  function showDetails(){document.body.classList.remove('feature-detail-closed');document.body.classList.add('feature-detail-open');}
-  function closeDetails(){document.body.classList.add('feature-detail-closed');document.body.classList.remove('feature-detail-open');details.focus();}
+  results.id='feature-search-results';results.hidden=true;searchBox.hidden=true;searchBox.append(search,results);$('global-search').append(searchBox);
+  function showDetails(){shell.showDetails();}
+  function closeDetails(){shell.closeDetails();}
   function closeSearch(){results.hidden=true;search.setAttribute('aria-expanded','false');}
   function renderSearch(){
     results.replaceChildren();const query=search.value.trim().toLocaleLowerCase();if(!query||!report){closeSearch();return;}
@@ -40,12 +37,11 @@ function createFeatureWorkbenchView({graph, api, make, button, onSelect, onEnter
   search.oninput=()=>{searchLimit=12;renderSearch();};search.onfocus=()=>{if(search.value.trim())renderSearch();};
   searchBox.addEventListener('keydown',event=>{
     const rows=[...results.querySelectorAll('.feature-search-result')];
-    if(event.key==='Escape'){closeSearch();search.focus();event.preventDefault();}
+    if(event.key==='Escape'){closeSearch();search.focus();event.preventDefault();event.stopPropagation();}
     else if(event.target===search&&rows.length&&['Enter','ArrowDown'].includes(event.key)){event.preventDefault();if(event.key==='Enter')rows[0].click();else rows[0].focus();}
     else if(rows.includes(event.target)&&['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();rows[(rows.indexOf(event.target)+(event.key==='ArrowDown'?1:-1)+rows.length)%rows.length].focus();}
   });
   document.addEventListener('pointerdown',event=>{if(!searchBox.contains(event.target))closeSearch();});
-  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&document.body.classList.contains('feature-active')){if(document.body.classList.contains('feature-tree-open'))toggleTree(false);else if(document.body.classList.contains('feature-detail-open'))closeDetails();}});
   function cancelCamera(){if(cameraFrame)cancelAnimationFrame(cameraFrame);cameraFrame=0;cameraTarget=null;}
   function applyCamera(){
     const c=cameras.get(key());if(!world||!viewport||!c)return;
@@ -113,9 +109,10 @@ function createFeatureWorkbenchView({graph, api, make, button, onSelect, onEnter
   }
   function drawHierarchy(){
     const cards=[...world.querySelectorAll('.feature-node-wrap')],origin=world.querySelector('.feature-parent-node'),lines=world.querySelector('.feature-hierarchy-lines');
-    const rows=Math.min(3,cards.length),gap=46,nodeWidth=220,rowHeight=Math.max(170,...cards.map(n=>n.offsetHeight))+44;
+    const gap=46,nodeWidth=220,rowHeight=Math.max(160,...cards.map(n=>n.offsetHeight))+36;
+    const rows=Math.min(cards.length,Math.max(1,Math.min(3,Math.floor((viewport.clientHeight-64)/rowHeight))));
     cards.forEach((n,i)=>{n.style.left=(290+Math.floor(i/Math.max(rows,1))*(nodeWidth+gap))+'px';n.style.top=(28+i%Math.max(rows,1)*rowHeight)+'px';});
-    const h=cards.length?28+rows*rowHeight-44:260;origin.style.left='18px';origin.style.top=Math.max(28,(h-origin.offsetHeight)/2)+'px';
+    const h=cards.length?28+rows*rowHeight-36:260;origin.style.left='18px';origin.style.top=Math.max(28,(h-origin.offsetHeight)/2)+'px';
     const w=Math.max(260,...cards.map(n=>n.offsetLeft+n.offsetWidth))+24;size={w,h:Math.max(h,origin.offsetTop+origin.offsetHeight)+24};world.style.width=size.w+'px';world.style.height=size.h+'px';
     lines.replaceChildren();for(const [k,v]of Object.entries({width:size.w,height:size.h,viewBox:`0 0 ${size.w} ${size.h}`}))lines.setAttribute(k,v);
     const start=[origin.offsetLeft+origin.offsetWidth,origin.offsetTop+origin.querySelector('strong').offsetTop+origin.querySelector('strong').offsetHeight/2];
@@ -154,7 +151,7 @@ function createFeatureWorkbenchView({graph, api, make, button, onSelect, onEnter
     controls.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key))return;event.preventDefault();cancelCamera();const c=cameras.get(key());c.x+=event.key==='ArrowLeft'?40:event.key==='ArrowRight'?-40:0;c.y+=event.key==='ArrowUp'?40:event.key==='ArrowDown'?-40:0;applyCamera();});
   }
   motion.addEventListener('change',()=>{if(!motion.matches)return;const target=cameraTarget;cancelCamera();if(target){Object.assign(cameras.get(key()),target);applyCamera();}for(const a of panel.getAnimations({subtree:true}))a.cancel();for(const ghost of panel.querySelectorAll('.feature-motion-ghost'))ghost.remove();});
-  function leave(){observer.disconnect();cancelCamera();stopTransitions();closeSearch();document.body.classList.remove('feature-tree-open','feature-detail-open');tree.setAttribute('aria-expanded','false');}
-  function reset(){cancelCamera();stopTransitions();cameras.clear();pages.clear();search.value='';closeSearch();document.body.classList.remove('feature-detail-open','feature-detail-closed');}
+  function leave(){observer.disconnect();cancelCamera();stopTransitions();closeSearch();}
+  function reset(){cancelCamera();stopTransitions();cameras.clear();pages.clear();search.value='';closeSearch();shell.revealMap();}
   return {render,select,locate,capture,transition,animate,showDetails,closeDetails,leave,reset};
 }
