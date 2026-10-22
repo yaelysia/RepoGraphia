@@ -43,6 +43,7 @@ with sync_playwright() as p:
             page.locator('.node-row').first.click()
             page.locator('#features-tab').click()
             assert page.locator('#feature-view').is_visible(), name
+            page.locator('#feature-tree-toggle').click()
             page.locator('#project-tab').click()
             assert page.locator('#project-map .project-node').count() == 2, name
             assert not console_errors, console_errors

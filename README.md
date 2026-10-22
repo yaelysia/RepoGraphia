@@ -97,12 +97,14 @@ node dist/cli.js analyze "../my-monorepo" --project "packages/app/tsconfig.json"
 
 ### 功能地图的阅读方式
 
-功能提案不再默认铺成长文卡片：选择紧凑的**功能节点**，查看按入口、实现、支撑和测试分组的**关联代码块**，再在右侧展开完整说明和源码证据。支撑/测试默认折叠但数量可见；「全部关联」保留完整分页记录。可选择叠加原图的调用箭头，候选仍用虚线，不推断功能依赖。
+功能地图采用中性的浅色/深色界面，**左侧画布、右侧阅读区**。胶囊节点显示名称和一句解释；点选只打开说明，点击「进入功能」才进入它的下一层，深度由实际标注决定。路径栏可逐层返回，全局搜索和按需打开的功能树帮助定位；画布默认以 100% 显示，可拖动、缩放或点击「适应」。层级切换有短暂的横移与缩放动效，并遵循系统的减少动态效果设置。
+
+右侧按**说明、依据、审阅**分开阅读，完整描述默认折叠。查看「关联代码」后，代码仍按入口、实现、支撑和测试分组；支撑/测试默认折叠但数量可见，「全部关联」保留完整分页记录。功能层级连线仅表示显式包含关系；原图调用箭头需另行开启，候选仍用虚线。返回原层会恢复画布和展开状态，不从共享代码推断功能依赖。
 
 已有 Agent 提案不必重新生成。更新并构建后，用原图和原标注渲染到新文件：
 
 ```sh
-node dist/cli.js features render "./reports/codex-monitor-r1/graph.json" "./reports/agent-trial-result-01/features.json" --out "./reports/feature-map-v2.html"
+node dist/cli.js features render "./reports/codex-monitor-r1/graph.json" "./reports/agent-trial-result-01/features.json" --out "./reports/feature-workbench.html"
 ```
 
 打开新 HTML 的「功能映射」。路径按实际报告调整，必须配对同一快照。详细交互和边界见 [功能地图阅读说明](docs/feature-map-visual.md)。

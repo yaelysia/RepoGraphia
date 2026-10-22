@@ -1,8 +1,8 @@
 # RepoGraphia 当前检查点
 
-## 当前进行中：CP29 显式功能层级已验证，极简工作台整合中
+## 当前进行中：CP30 极简功能工作台已实现，等待跨平台 CI
 
-2026-10-22，用户已选择「极简工具」设计并授权正式落地。当前分支 `feat/minimal-function-workbench`，远端 master 基线已核对为 `d277ab5d6cdf03e40f7d6fdfafc810ae51e5c939`。先读 `docs/checkpoints/CP29-authored-feature-hierarchy.md` 和 CP28 计划。schema 3 的显式层级、摘要、迁移兼容与 Agent 协议扩展已通过 126 项针对性测试，完整单元测试 330 项通过；UI 浏览器与跨平台验收仍在进行，尚未合入。以下 CP27 保留为已合入的上一阶段记录。
+2026-10-22，用户已选择「极简工具」设计并授权正式落地。当前分支 `feat/minimal-function-workbench`，远端 master 基线已核对为 `d277ab5d6cdf03e40f7d6fdfafc810ae51e5c939`。先读 `docs/checkpoints/CP30-minimal-workbench-implementation.md`、CP29 层级契约和 CP28 计划。左图右阅读区、递归层级、搜索定位、状态恢复和动效已接入正式渲染器；本地 332 项单元测试、160 项真实浏览器检查及 6 组启动/CSP 检查通过。Windows/Linux Node 22 CI 和固定样本 gate 待核对，尚未合入。以下 CP27 保留为已合入的上一阶段记录。
 
 ## CP27：功能节点、关联代码子图与分层审阅完成
 

@@ -61,6 +61,52 @@ test('authoring a summary upgrades the document and follows existing semantic-ed
   assert.equal(next.features[0].description, old.features[0].description);
 });
 
+test('reordering feature object keys on an unchanged save preserves accepted mappings in legacy and nested documents', () => {
+  let nested = editFeature(old, { id: 'child', title: 'Child', summary: 'Checks a request.', parentId: 'parent',
+    description: 'Requests sending only when enabled; delivery is not proved.', questions: ['Was the request enabled?', 'Was delivery observed?'] });
+  nested = api.edit(graph, nested, mapping('child'), context(nested));
+  nested = api.edit(graph, nested, { op: 'review', id: 'child-map', decision: 'accepted' }, context(nested));
+  const browser = vm.runInNewContext(`(${createFeatureMapApi.toString()})()`);
+  for (const [map, id] of [[old, 'parent'], [nested, 'child']]) {
+    const original = JSON.stringify(map), f = map.features.find(f => f.id === id);
+    const reordered = { questions: [...f.questions], description: f.description, title: f.title, id: f.id,
+      ...(f.summary === undefined ? {} : { summary: f.summary }), ...(f.parentId === undefined ? {} : { parentId: f.parentId }) };
+    assert.notEqual(JSON.stringify(reordered), JSON.stringify(f));
+    for (const implementation of [api, browser]) {
+      const next = implementation.edit(graph, map, { op: 'feature', feature: reordered }, context(map));
+      assert.equal(next.schemaVersion, map.schemaVersion);
+      assert.equal(next.revision, map.revision + 1);
+      assert.equal(JSON.stringify(next.mappings), JSON.stringify(map.mappings));
+      assert.equal(JSON.stringify(next.history.slice(0, -1)), JSON.stringify(map.history));
+      assert.deepEqual(JSON.parse(JSON.stringify(next.history.at(-1).before)), f);
+      assert.deepEqual(JSON.parse(JSON.stringify(next.history.at(-1).after)), reordered);
+      assert.equal(JSON.stringify(map), original);
+    }
+  }
+});
+
+test('actual feature content changes, including question order and optional-field removal, still reset acceptance', () => {
+  let map = editFeature(old, { ...feature('child', 'parent', 'Checks a request.'), questions: ['First question?', 'Second question?'] });
+  map = api.edit(graph, map, mapping('child'), context(map));
+  map = api.edit(graph, map, { op: 'review', id: 'child-map', decision: 'accepted' }, context(map));
+  const original = JSON.stringify(map), f = map.features.find(f => f.id === 'child');
+  for (const change of [
+    row => { row.title = 'A revised title'; },
+    row => { row.description = 'A revised functional claim.'; },
+    row => { row.questions[0] = 'A revised question?'; },
+    row => { row.questions.reverse(); },
+    row => { row.summary = 'A revised concise claim.'; },
+    row => { delete row.summary; },
+    row => { delete row.parentId; },
+  ]) {
+    const changed = structuredClone(f); change(changed);
+    const next = editFeature(map, changed);
+    assert.equal(next.mappings.find(m => m.id === 'child-map').decision, 'proposed');
+    assert.equal(next.mappings.find(m => m.id === 'parent-map').decision, 'accepted');
+    assert.equal(JSON.stringify(map), original);
+  }
+});
+
 test('schema 3 requires mapping basis and older schemas reject hierarchy metadata', () => {
   const valid = editFeature(old, feature('child', 'parent'));
   for (const mutate of [m => delete m.mappings[0].basis, m => { m.schemaVersion = 2; },

@@ -30,6 +30,9 @@ with sync_playwright() as p:
         page.locator('#features-tab').click()
     def reveal(selector):
         el = page.locator(selector)
+        panel = el.locator('xpath=ancestor::*[@data-panel]').first
+        if panel.count():
+            page.locator(f'.feature-detail-tabs [data-tab="{panel.get_attribute("data-panel")}"]').click()
         if el.get_attribute('open') is None:
             el.locator('summary').first.click()
     load('features.html')
@@ -41,6 +44,7 @@ with sync_playwright() as p:
     first = page.locator('.feature-card[data-feature=window]')
     first.focus(); page.keyboard.press('Enter')
     check(first.get_attribute('aria-pressed') == 'true', 'feature nodes support keyboard selection')
+    page.locator('.feature-open-code[data-feature=window]').click()
     check(page.locator('.feature-code-node').count() == 7, 'default shows bounded entry and implementation nodes only')
     check(page.locator('.feature-group-expand[data-role=support]').inner_text().startswith('展开 21'), 'folded support count remains visible')
     check('WindowController.show' in page.locator('.feature-code-node[data-mapping=m0]').inner_text(), 'method label includes lexical class')
@@ -83,7 +87,9 @@ with sync_playwright() as p:
     page.get_by_label('本次修改理由').fill('Fixture review only')
     page.locator('.feature-review[data-decision=accepted]').click()
     check('人工接受' in page.locator('.feature-code-node[data-mapping=m0]').inner_text(), 'review updates the scene and inspector consistently')
+    page.locator('.feature-detail-tabs [data-tab=about]').click()
     check('候选关系' in page.locator('#detail').inner_text(), 'acceptance does not erase candidate status')
+    reveal('.feature-document-tools')
     with page.expect_download() as d:
         page.locator('#feature-export').click()
     dest = root / 'edited-test-only.json';d.value.save_as(dest)
@@ -92,6 +98,7 @@ with sync_playwright() as p:
     page.locator('#feature-import').set_input_files(str(root / 'features.json'))
     expect(page.locator('#feature-notice')).to_contain_text('已载入')
     page.locator('.feature-card[data-feature=window]').click()
+    page.locator('.feature-open-code[data-feature=window]').click()
     check('待审' in page.locator('.feature-code-node[data-mapping=m0]').inner_text(), 'import resets the view to the imported sidecar, not an old decision')
     check(page.locator('#graph-data').text_content() == graph, 'navigation and review never mutate the code graph')
     page.locator('#feature-migrate').click()
@@ -101,11 +108,13 @@ with sync_playwright() as p:
     page.set_viewport_size({'width': 430, 'height': 900})
     page.wait_for_timeout(150)
     check(page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'long titles and code labels fit a narrow viewport')
-    check(page.locator('.feature-call-line').count() == 0, 'narrow stacked layout uses readable records instead of crossing arrows')
+    check(page.locator('.feature-call-line').count() == 0, 'narrow code viewport keeps original records without call arrows')
     page.screenshot(path=str(root / 'feature-scene-narrow.png'), full_page=True)
+    page.locator('#feature-tree-toggle').click()
     page.locator('#project-tab').click()
     check('feature-active' not in page.locator('body').get_attribute('class'), 'leaving features restores the original layout')
-    load('stale.html');page.locator('.feature-card[data-feature=window]').click()
+    page.set_viewport_size({'width': 1680, 'height': 1000})
+    load('stale.html');page.locator('.feature-open-code[data-feature=window]').click()
     page.locator('.feature-code-node[data-mapping=m0]').click()
     check('已失效' in page.locator('#detail').inner_text(), 'stale state is visible without opening an evidence fold')
     check(page.locator('.feature-source').count() == 0, 'stale records cannot navigate to current same-name source')

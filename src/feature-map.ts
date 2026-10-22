@@ -79,6 +79,10 @@ export function createFeatureMapApi() {
     if ('summary' in f) text(f.summary, 'summary', 200);
     if ('parentId' in f) id(f.parentId);
   }
+  function sameFeatureMeaning(a: Feature, b: Feature) {
+    return a.title === b.title && a.description === b.description && a.summary === b.summary && a.parentId === b.parentId &&
+      a.questions.length === b.questions.length && a.questions.every((question, i) => question === b.questions[i]);
+  }
   /** Explicit containment forest, shared by authoring and navigation. Depth follows the data. */
   function hierarchy(features: Feature[]) {
     array(features, 1000);
@@ -250,8 +254,8 @@ export function createFeatureMapApi() {
       }
       const old = map.features.find(f => f.id === subject); before = old ?? null; after = clone(operation.feature);
       map.features = [...map.features.filter(f => f.id !== subject), after as Feature];
-      // Changing the meaning of a feature invalidates all earlier acceptance decisions.
-      if (old && JSON.stringify(old) !== JSON.stringify(after))
+      // JSON object-key order is not a semantic edit; question order remains authored content.
+      if (old && !sameFeatureMeaning(old, operation.feature))
         map.mappings = map.mappings.map(m => m.featureId === subject && m.decision === 'accepted' ? { ...m, decision: 'proposed' } : m);
     } else if (operation.op === 'mapping') {
       object(operation, ['op','id','featureId','nodeId','role','rationale','relationIds']);
