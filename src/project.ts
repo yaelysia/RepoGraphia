@@ -47,6 +47,8 @@ export interface AnalysisInputs {
   root: string;
   inventory: ReturnType<typeof inventory>;
   reads: { path: string; hash: string | null }[];
+  /** Paths requested during config parsing, including extends/package metadata; absent in older captures. */
+  configReads?: string[];
   files: { path: string; exists: boolean }[];
   directories: { path: string; exists: boolean }[];
   realpaths: { path: string; resolved: string | null }[];
@@ -104,6 +106,7 @@ export function checkAnalysisInputs(inputs: AnalysisInputs): { current: boolean;
 /** One reader is shared by config parsing and the CompilerHost for this rebuild. */
 function inputReader(root: string, found: ReturnType<typeof inventory>) {
   const reads = new Map<string, { path: string; text: string | undefined }>();
+  const configReads = new Map<string, string>();
   const files = new Map<string, { path: string; exists: boolean }>();
   const directories = new Map<string, { path: string; exists: boolean }>();
   const realpaths = new Map<string, { path: string; resolved: string | null }>();
@@ -152,9 +155,16 @@ function inputReader(root: string, found: ReturnType<typeof inventory>) {
       return [...directoryQueries.get(key)!.files];
     },
   };
+  const readConfigFile = (file: string): string | undefined => {
+    const absolute = path.resolve(file);
+    configReads.set(fileKey(absolute), absolute);
+    // Attribute the read's purpose without rereading a path or changing cached bytes.
+    return reader.readFile(absolute);
+  };
   const capture = (): AnalysisInputs => ({ schemaVersion: 1, root,
     inventory: { files: [...found.files], symlinks: [...found.symlinks], ignored: [...found.ignored] },
     reads: [...reads.values()].map(item => ({ path: item.path, hash: item.text === undefined ? null : hash(item.text) })),
+    configReads: [...configReads.values()].sort(),
     files: [...files.values()].map(item => ({ ...item })), directories: [...directories.values()].map(item => ({ ...item })),
     realpaths: [...realpaths.values()].map(item => ({ ...item })),
     // Canonicalize captured sets without changing compiler traversal or which
@@ -164,7 +174,7 @@ function inputReader(root: string, found: ReturnType<typeof inventory>) {
       ...(item.extensions ? { extensions: [...item.extensions] } : {}), ...(item.excludes ? { excludes: [...item.excludes] } : {}),
       ...(item.includes ? { includes: [...item.includes] } : {}) })),
   });
-  return { reader, capture, readHashes };
+  return { reader, readConfigFile, capture, readHashes };
 }
 
 /** Snapshot identity includes inventory/failed queries, not just successfully read files. */
@@ -175,6 +185,7 @@ export function analysisInputDigest(inputs: AnalysisInputs): string {
   return hash(JSON.stringify({ schemaVersion: inputs.schemaVersion,
     inventory: { ...inputs.inventory, files: inputs.inventory.files.map(relative) },
     reads: byPath(inputs.reads), files: byPath(inputs.files), directories: byPath(inputs.directories),
+    ...(inputs.configReads === undefined ? {} : { configReads: inputs.configReads.map(relative).sort() }),
     realpaths: byPath(inputs.realpaths.map(item => ({ ...item, resolved: item.resolved === null ? null : relative(item.resolved) }))),
     directoryNames: byPath(inputs.directoryNames),
     directoryQueries: byPath(inputs.directoryQueries.map(item => ({ ...item, files: item.files.map(relative) }))),
@@ -195,9 +206,10 @@ export function loadProject(input: string, configName?: string) {
   let options = defaults, roots = found.files.filter(isSource);
   const diagnostics: AnalysisDiagnostic[] = [];
   if (configPath) {
-    const raw = ts.readConfigFile(configPath, reader.readFile);
+    const raw = ts.readConfigFile(configPath, inputs.readConfigFile);
     if (raw.error) throw new Error(ts.flattenDiagnosticMessageText(raw.error.messageText, '\n'));
-    const parsed = ts.parseJsonConfigFileContent(raw.config, { ...ts.sys, ...reader }, path.dirname(configPath), { noEmit: true }, configPath);
+    const parsed = ts.parseJsonConfigFileContent(raw.config, { ...ts.sys, ...reader, readFile: inputs.readConfigFile },
+      path.dirname(configPath), { noEmit: true }, configPath);
     const fatal = parsed.errors.filter(d => d.code !== 18003);
     if (fatal.length) throw new Error(fatal.map(d => ts.flattenDiagnosticMessageText(d.messageText, '\n')).join('\n'));
     options = { ...defaults, allowJs: false, ...parsed.options, noEmit: true, incremental: false };

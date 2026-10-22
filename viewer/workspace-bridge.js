@@ -5,7 +5,7 @@ function createWorkspaceBridge() {
   const config = JSON.parse(element.textContent), origin = window.origin;
   if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) return null;
   const channel = 'repographia-workspace-v1', instance = crypto.randomUUID();
-  let hooks = null, sequence = 0, pending = null, draft = false;
+  let hooks = null, sequence = 0, pending = null, draft = false, featureDigest = config.featureDigest, references = null;
   const inputs = new Map();
   const send = (type, data = {}) => window.parent.postMessage({channel, instance, snapshot: config.snapshot, type, ...data}, origin);
   const state = () => send('state', {dirty: pending !== null, draft, readOnly: !!config.readOnly});
@@ -13,7 +13,7 @@ function createWorkspaceBridge() {
   function reconcileDraft() {
     for (const input of inputs.keys()) if (!input.isConnected) inputs.delete(input);
     const next = [...inputs].some(([input, initial]) => valueOf(input) !== initial);
-    if (next !== draft) {draft = next;state();}
+    if (next !== draft) {draft = next;state();if (!draft && references) hooks?.references?.(references);}
   }
   const editable = target => !config.readOnly && target instanceof Element &&
     target.matches('input:not([type=file]),textarea,select') && target.closest('.feature-field,[data-workspace-edit]');
@@ -30,15 +30,25 @@ function createWorkspaceBridge() {
   new MutationObserver(reconcileDraft).observe(document.body, {childList: true, subtree: true});
   window.addEventListener('message', event => {
     const data = event.data;
-    if (event.source !== window.parent || event.origin !== origin || data?.channel !== channel || data.instance !== instance) return;
+    if (event.source !== window.parent || event.origin !== origin || data?.channel !== channel || data.instance !== instance || data.snapshot !== config.snapshot) return;
     if (data.type === 'saved' && data.editId === pending) {
-      pending = null;hooks?.saved();state();
+      pending = null;if (typeof data.featureDigest === 'string') featureDigest = data.featureDigest;hooks?.saved();state();
     } else if (data.type === 'save-error' && data.editId === pending) {
       hooks?.failed(String(data.message || '保存失败'));state();
     } else if (data.type === 'export-draft') {
       const blob = new Blob([JSON.stringify(hooks?.document(), null, 2)], {type: 'application/json'});
       const url = URL.createObjectURL(blob), link = document.createElement('a');
       link.href = url;link.download = 'features-unsaved.json';link.click();setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } else if (data.type === 'reference-status') {
+      const report = data.references;
+      if (pending !== null || data.featureDigest !== featureDigest || report?.referenceVersion !== 1 ||
+          report.snapshot !== config.snapshot || report.featureDigest !== featureDigest || report.revision !== hooks?.document().revision) return;
+      references = report;if (!draft) hooks?.references?.(report);
+    } else if (data.type === 'navigate') {
+      if (data.featureDigest !== featureDigest) return;
+      if (pending !== null || draft) {send('navigation-result',{ok:false,reason:'地图中有尚未保存或未应用的编辑，请先处理后再查看其他依据。'});return;}
+      const ok = hooks?.navigate?.(data) === true;
+      send('navigation-result',{ok,reason:ok ? '' : '所选目标不在这个固定版本中，未按名称猜测跳转。'});
     }
   });
   window.addEventListener('beforeunload', event => {if (pending !== null || draft) {event.preventDefault();event.returnValue = '';}});
@@ -47,7 +57,7 @@ function createWorkspaceBridge() {
   const info = document.querySelector('.project-info-content > .meta');
   if (info) info.textContent = '代码是固定快照；应用标注修改后自动保存到本地工作区。';
   const hint = document.querySelector('#feature-view > .callout');
-  if (hint) hint.textContent = config.readOnly ? '本轮起点的历史标注，只读查看。原审阅决定仍绑定当时的依据。' :
+  if (hint) hint.textContent = config.readOnly ? '固定版本的历史标注，只读查看。原审阅决定仍绑定当时的依据。' :
     '关联不等于调用。应用修改后自动保存；旧依据保留原版本，不会自动迁移到新代码。';
   return {
     readOnly: !!config.readOnly,
@@ -58,8 +68,13 @@ function createWorkspaceBridge() {
     },
     changed(document) {
       if (config.readOnly) return;
-      inputs.clear();draft = false;pending = ++sequence;
+      inputs.clear();draft = false;references = null;pending = ++sequence;
       send('features', {editId: pending, document});state();
     },
+    requestAnalysis(request) {
+      if (config.readOnly || !['overview','feature','changes'].includes(request.kind)) return;
+      send('analysis-request',request);
+    },
+    context(featureId) {send('view-context',{featureId,featureDigest});},
   };
 }

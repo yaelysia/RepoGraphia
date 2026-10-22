@@ -1,5 +1,17 @@
 # RepoGraphia 当前检查点
 
+## CP39：M2 合入修复基线后，完整本地验收通过
+
+2026-10-22，`feat/feature-incremental` 已包含 CP38 功能建设与 CP37 输入顺序修复。Linux / Node 22.18.0 / 锁定 TypeScript 5.9.3：完整 **470 pass / 0 fail / 0 skip**；M2 真服务浏览器 **13 组**、原工作区 **14 组**、离线换行/CSP **6 夹具**均符合预期，0 浏览器异常/外网请求。Skill 1.3 的任务修订实际试跑已完成，旧追加流程保留。
+
+先读 [CP39 验收与发布](checkpoints/CP39-feature-incremental-validation.md)、[CP38 实现](checkpoints/CP38-feature-incremental-implementation.md) 与 [功能建设使用说明](feature-tasks.md)。精确远端 HEAD/tree、M1/M2 的最终 CI 及合并状态以对应 PR 为准；接手先核对远端，不把本地验收写成跨平台已通过。M2 不启动 Agent，不自动接受功能关联，不改变旧 assess/migration。
+
+## CP38：M2 功能建设与增量修订已完成本地验收
+
+2026-10-22，分支 `feat/feature-incremental`。三类固定任务、外部 Agent 修订协议/CLI、Skill 1.3、逐原依据的只读引用核对、持久化提案与整批人工应用，以及暗色左右「功能建设」已接通。新增/改义关联保持待审，迟到结果保持可读但不能覆盖现状，未归属代码与探索声明分别展示；不启动 Agent，也不将底层完整重建称为局部增量提取。
+
+Linux / Node 22.18.0 / TypeScript 5.9.3 完整单元 **464 通过 / 0 失败 / 0 跳过**；真实 loopback Chromium 的 M2 **13 组**、原工作区 **14 组**通过，均 0 浏览器异常/外网请求。M1 PR #12 的 CP37 输入顺序修复需合入最终 M2 基线（本地 project.ts 已包含等价修复），随后核对精确 PR HEAD 的 Windows/Linux/sample CI。先读 [CP38](checkpoints/CP38-feature-incremental-implementation.md)、[功能建设](feature-tasks.md)、[产品方向](product-direction.md)。本阶段尚未报告 M2 合并到 master。
+
 ## CP37：M1 跨平台单元通过，已修复样本暴露的输入顺序回归
 
 2026-10-22。PR #12 实现 `0b54d17913af5e1b1df4d2111272fb40af385222` 的 Verify #53：Linux 与 Windows job 全部通过，固定样本的项目地图比较失败。已定位输入捕获读取器排序会改变 TypeScript 原始目录遍历，甚至影响触及预算时保留的候选；现已保持编译器原始返回顺序，仅排序捕获副本。另将样本校验改为完整关系事实多重集比较，排除快照内关系 ID/外层顺序，仍保留全部来源、预算、截断和重复数。

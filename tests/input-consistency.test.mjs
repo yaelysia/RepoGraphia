@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import ts from 'typescript';
 import { analyze } from '../dist/analyze.js';
-import { checkAnalysisInputs, loadProject } from '../dist/project.js';
+import { analysisInputDigest, checkAnalysisInputs, loadProject } from '../dist/project.js';
 
 const roots = [];
 after(() => roots.forEach(root => fs.rmSync(root, { recursive: true, force: true })));
@@ -204,4 +204,62 @@ test('input capture does not change the callers selected by the existing origin 
     ['z.ts', ...Array.from({ length: 15 }, (_, i) => `a/caller${String(i).padStart(2, '0')}.ts`)]);
   assert.deepEqual([...relation.targets].sort(), origins.sources.map(source => source.target).sort());
   assert.deepEqual(checkAnalysisInputs(inputs), { current: true, changed: [] });
+});
+
+test('config read attribution follows actual nonstandard transitive extends even when those files are indexed as source', () => {
+  const root = fixture({
+    'tsconfig.json': JSON.stringify({ compilerOptions: config.compilerOptions, extends: './settings.ts', include: ['*.ts'] }),
+    'settings.ts': '{"extends":"./inherited.ts","compilerOptions":{"strict":true}}',
+    'inherited.ts': '{"compilerOptions":{"allowJs":false}}',
+    'ordinary.ts': 'export const ordinary = 1;',
+    'unused-settings.ts': '{"compilerOptions":{"strict":false}}',
+  });
+  const first = captured(root), expected = ['tsconfig.json', 'settings.ts', 'inherited.ts'].map(file => path.join(root, file)).sort();
+  assert.deepEqual(first.inputs.configReads, expected);
+  for (const file of ['settings.ts', 'inherited.ts']) {
+    const indexed = first.graph.files.find(item => item.path === file);
+    assert.ok(indexed, 'Nonstandard inherited configuration must also be indexed in this fixture.');
+    assert.equal(first.inputs.reads.find(item => item.path === path.join(root, file)).hash, indexed.hash);
+  }
+  assert.ok(first.inputs.reads.some(item => item.path === path.join(root, 'ordinary.ts')));
+  assert.ok(first.inputs.reads.some(item => item.path === path.join(root, 'unused-settings.ts')));
+  const project = loadProject(root), inputs = project.captureInputs(), digest = analysisInputDigest(inputs);
+  inputs.configReads.reverse();
+  assert.equal(analysisInputDigest(inputs), digest, 'Attribution order must not create a different snapshot.');
+  inputs.configReads.push(path.join(root, 'ordinary.ts'));
+  assert.notEqual(analysisInputDigest(inputs), digest, 'Read purpose must participate in the snapshot digest.');
+  assert.deepEqual(project.captureInputs().configReads, expected);
+  const inherited = path.join(root, 'inherited.ts'), original = project.inputReader.readFile(inherited);
+  fs.appendFileSync(inherited, '\n// configuration update\n');
+  assert.equal(project.inputReader.readFile(inherited), original);
+  assert.equal(analysisInputDigest(project.captureInputs()), digest, 'Repeated compiler reads use the same captured bytes.');
+  assert.ok(checkAnalysisInputs(first.inputs).changed.includes(inherited));
+});
+
+test('empty configuration attribution differs from legacy absence while old captures still reconcile', () => {
+  const root = fixture(); fs.unlinkSync(path.join(root, 'tsconfig.json'));
+  const { inputs } = captured(root), legacy = structuredClone(inputs); delete legacy.configReads;
+  assert.deepEqual(inputs.configReads, []);
+  assert.notEqual(analysisInputDigest(inputs), analysisInputDigest(legacy));
+  assert.deepEqual(checkAnalysisInputs(legacy), { current: true, changed: [] });
+  assert.equal(analysisInputDigest(JSON.parse(JSON.stringify(inputs))), analysisInputDigest(inputs));
+  fs.appendFileSync(path.join(root, 'main.ts'), '\n// later source\n');
+  assert.equal(checkAnalysisInputs(legacy).current, false);
+});
+
+test('a real extends resolution query detects a newly preferred configuration path with identical options', () => {
+  const root = fixture({
+    'tsconfig.json': JSON.stringify({ ...config, extends: './settings' }),
+    'settings.json': '{"compilerOptions":{"strict":true}}',
+  });
+  const first = captured(root), preferred = path.join(root, 'settings'), fallback = path.join(root, 'settings.json');
+  assert.ok(first.inputs.files.some(item => item.path === preferred && !item.exists));
+  assert.ok(first.inputs.configReads.includes(fallback));
+  assert.ok(!first.inputs.configReads.includes(preferred), 'Existence probes are not read-purpose observations.');
+  fs.writeFileSync(preferred, fs.readFileSync(fallback, 'utf8'));
+  assert.ok(checkAnalysisInputs(first.inputs).changed.includes(preferred));
+  const second = captured(root);
+  assert.ok(second.inputs.configReads.includes(preferred)); assert.ok(!second.inputs.configReads.includes(fallback));
+  assert.deepEqual(first.graph.nodes, second.graph.nodes); assert.deepEqual(first.graph.relations, second.graph.relations);
+  assert.notEqual(first.graph.project.snapshot, second.graph.project.snapshot);
 });

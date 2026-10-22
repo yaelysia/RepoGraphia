@@ -5,8 +5,10 @@ import { AGENT_OUTPUT_BYTES, AgentError, createAgentApi } from './agent.js';
 import { renderHtml } from './report.js';
 import { writeNewBundle } from './output.js';
 import type { CodeGraph } from './model.js';
+import { runFeatureTaskCli } from './feature-task-cli.js';
 
 const help = `Agent protocol 1 (JSON output; errors are JSON on stderr)
+  agent task --help  (workspace task bundles and reviewable revisions)
   agent overview <graph.json> [--features sidecar.json] [--scope directory] [--offset 0 --limit 25]
   agent search <graph.json> <text> [--features sidecar.json] [--scope directory] [--offset 0 --limit 25]
   agent inspect <graph.json> <exact-node-id> [--features sidecar.json] [--offset 0 --limit 25] [--source-offset 0 --source-limit 6000]
@@ -18,6 +20,7 @@ A submit adds proposed annotations only; it cannot review, replace or migrate de
 Use skills/repographia-function-map/SKILL.md for exploration, decomposition and recovery.
 `;
 export function runAgentCli(argv: string[]): number {
+  if (argv[0] === 'task') return runFeatureTaskCli(argv.slice(1));
   try {
     const { positionals: a, values: v } = parseArgs({ args: argv, allowPositionals: true, options: {
       features: {type:'string'}, scope: {type:'string'}, offset: {type:'string'}, limit: {type:'string'},

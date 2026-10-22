@@ -4,6 +4,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { ContinuousWorkspace, WorkspaceError } from './workspace.js';
 import { compareWorkspaceGraphs } from './workspace-diff.js';
 import { renderHtml } from './report.js';
+import { AgentError } from './agent.js';
 
 const bodyLimit = 16 * 1024 * 1024;
 const noCache = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff' };
@@ -51,7 +52,7 @@ export async function startWorkspaceServer(workspace: ContinuousWorkspace, optio
       if (method === 'GET' && url.pathname === '/') {
         send(response, fs.readFileSync(new URL('../viewer/workspace.html', import.meta.url), 'utf8'), 'text/html; charset=utf-8', { 'Content-Security-Policy': parentPolicy }); return;
       }
-      if (method === 'GET' && ['/workspace.js', '/workspace.css'].includes(url.pathname)) {
+      if (method === 'GET' && ['/workspace.js', '/workspace-analysis.js', '/workspace.css'].includes(url.pathname)) {
         send(response, fs.readFileSync(new URL('../viewer' + url.pathname, import.meta.url), 'utf8'), url.pathname.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/css; charset=utf-8'); return;
       }
       if (method === 'GET' && url.pathname.startsWith('/report/')) {
@@ -63,6 +64,38 @@ export async function startWorkspaceServer(workspace: ContinuousWorkspace, optio
       if (!url.pathname.startsWith('/api/')) throw new WorkspaceError('Not found', 404);
       if (!authenticated(request)) throw new WorkspaceError('Open the complete workspace URL printed in the terminal', 401);
       if (method === 'GET' && url.pathname === '/api/state') { json(response, workspace.state()); return; }
+      if (method === 'GET' && url.pathname === '/api/feature-work') {
+        json(response, workspace.featureWork(url.searchParams.get('snapshot') ?? undefined, url.searchParams.get('featureDigest') ?? undefined)); return;
+      }
+      if (method === 'POST' && url.pathname === '/api/feature-tasks') {
+        const body = await jsonBody(request);
+        if (Object.keys(body).some(key => !['kind','featureId','goal','expectedSnapshot','expectedFeatureDigest'].includes(key)) ||
+          !['overview','feature','changes'].includes(body.kind as string) || typeof body.goal !== 'string' ||
+          typeof body.expectedSnapshot !== 'string' || typeof body.expectedFeatureDigest !== 'string' ||
+          body.featureId !== undefined && typeof body.featureId !== 'string') throw new WorkspaceError('Invalid feature task request');
+        json(response, { task: workspace.prepareFeatureTask({ kind: body.kind as 'overview'|'feature'|'changes', goal: body.goal,
+          featureId: body.featureId as string | undefined, expectedSnapshot: body.expectedSnapshot, expectedFeatureDigest: body.expectedFeatureDigest }) }, 201); return;
+      }
+      const bundleRoute = /^\/api\/feature-tasks\/([a-f0-9-]{36})\/bundle$/.exec(url.pathname);
+      if (method === 'GET' && bundleRoute) {
+        const bundle = workspace.featureTaskBundle(bundleRoute[1]!);
+        send(response, JSON.stringify(bundle), 'application/json; charset=utf-8', { 'Content-Disposition': `attachment; filename="repographia-task-${bundle.task.id}.json"` }); return;
+      }
+      if (method === 'POST' && url.pathname === '/api/feature-proposals') {
+        const body = await jsonBody(request);
+        if (Object.keys(body).some(key => !['proposal','author'].includes(key)) || typeof body.author !== 'string') throw new WorkspaceError('Expected a revision proposal and declared author');
+        json(response, { proposal: workspace.importFeatureProposal({ proposal: body.proposal, author: body.author }) }, 201); return;
+      }
+      const proposalRoute = /^\/api\/feature-proposals\/([a-f0-9-]{36}|[a-f0-9]{64})(\/decision)?$/.exec(url.pathname);
+      if (method === 'GET' && proposalRoute && !proposalRoute[2]) { json(response, workspace.featureProposal(proposalRoute[1]!)); return; }
+      if (method === 'POST' && proposalRoute?.[2] === '/decision') {
+        const body = await jsonBody(request);
+        if (Object.keys(body).some(key => !['decision','expectedSnapshot','expectedFeatureDigest','actor','reason'].includes(key)) ||
+          !['apply','reject'].includes(body.decision as string) || typeof body.expectedSnapshot !== 'string' ||
+          typeof body.expectedFeatureDigest !== 'string' || typeof body.actor !== 'string' || typeof body.reason !== 'string') throw new WorkspaceError('Invalid revision decision');
+        json(response, workspace.decideFeatureProposal(proposalRoute[1]!, { decision: body.decision as 'apply'|'reject',
+          expectedSnapshot: body.expectedSnapshot, expectedFeatureDigest: body.expectedFeatureDigest, actor: body.actor, reason: body.reason })); return;
+      }
       if (method === 'GET' && ['/api/report', '/api/export', '/api/graph'].includes(url.pathname)) {
         const snapshot = url.searchParams.get('snapshot') ?? workspace.state().latestSnapshot;
         if (!snapshot) throw new WorkspaceError('The first code version is still being prepared', 409);
@@ -112,7 +145,7 @@ export async function startWorkspaceServer(workspace: ContinuousWorkspace, optio
       throw new WorkspaceError('Unknown operation', 404);
     })().catch(error => {
       if (response.headersSent || response.destroyed) { response.end(); return; }
-      json(response, { error: error instanceof Error ? error.message : String(error) }, error instanceof WorkspaceError ? error.statusCode : 500);
+      json(response, { error: error instanceof Error ? error.message : String(error) }, error instanceof WorkspaceError ? error.statusCode : error instanceof AgentError ? 400 : 500);
     });
   });
   server.requestTimeout = 210_000;

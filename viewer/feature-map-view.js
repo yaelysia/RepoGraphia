@@ -18,7 +18,8 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
     'truncated-value-origins':'来源追踪已截断'};
   let doc=initial?api.validate(initial):api.create(graph),report=api.assess(graph,doc);
   let active=false,scopeId=null,mode='features',selected=null,selectedMapping=null,detailTab='about',dirty=false,actor='',reason='';
-  let inspectorKey=null;
+  let inspectorKey=null,referenceReport=null;
+  const referenceLabels={matched:'当前依据匹配','needs-review':'当前依据需要复核',unmatched:'原引用未匹配',unverified:'当前依据尚未核实',unmapped:'尚无代码关联'};
   const scopes=new Map(),inspections=new Map(),scopeKey=()=>scopeId;
   const fields=(box,name,value='',multiline=false)=>{
     const label=make('label',name,'feature-field'),input=make(multiline?'textarea':'input');
@@ -71,8 +72,18 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
   }
   function refresh(){
     normalizeView();
-    const s=report.summary;$('feature-summary').textContent=`${s.features} 个功能提案 · ${s.mappings} 条映射 · ${s.stale} 条失效 · 文档版本 ${doc.revision}${dirty?' · 未保存草稿':''}`;
+    const s=report.summary,referenceNote=referenceReport?`${referenceReport.mappings.filter(m=>m.status!=='matched').length} 条关联需复核`:'等待当前引用核对';
+    $('feature-summary').textContent=workspaceBridge?`${s.features} 个功能 · ${s.mappings} 条关联 · ${referenceNote} · 文档版本 ${doc.revision}${dirty?' · 未保存草稿':''}`:
+      `${s.features} 个功能提案 · ${s.mappings} 条映射 · ${s.stale} 条失效 · 文档版本 ${doc.revision}${dirty?' · 未保存草稿':''}`;
     workbench.render(report,{scopeId,mode,selected});renderList('',60);
+    if(referenceReport)for(const card of panel.querySelectorAll('.feature-card')){
+      const id=card.dataset.feature,refs=referenceReport.mappings.filter(item=>item.featureId===id),pending=refs.filter(item=>item.status!=='matched').length;
+      const stats=card.querySelector('.feature-node-stats');if(stats){
+        const children=api.hierarchy(doc.features).children(id).length;
+        stats.textContent=`${children?children+' 个子功能 · ':''}${refs.length} 条关联${pending?' · '+pending+' 条需复核':refs.length?' · 引用已核对':''}`;
+        stats.classList.toggle('feature-stale-text',pending>0);
+      }
+    }
     if(mode==='code'&&scopeId)sceneView.show(doc.features.find(f=>f.id===scopeId),report);else sceneView.leave();
   }
   function renderInspector(){
@@ -111,7 +122,8 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
       make('p','点选节点阅读说明，点击“进入功能”查看下一层。路径栏可以随时返回。'),
       make('p','功能连线表示明确标注的包含关系；关联代码另行查看。','meta'),
       make('p','当前内容是有限范围的功能提案，不是完整功能清单。','meta'));
-    if(report.globalIssues.length)box.append(make('div',report.globalIssues.map(x=>issues[x]||x).join('；'),'callout'));
+    if(report.globalIssues.length)box.append(make('div',workspaceBridge?'原标注依据与当前代码版本不同。各项引用另行核对，原内容和人工决定保留。':report.globalIssues.map(x=>issues[x]||x).join('；'),'callout'));
+    if(workspaceBridge&&!readOnly)box.append(button('准备项目粗图任务',()=>workspaceBridge.requestAnalysis({kind:'overview'}),'detail-link'));
   }
   function showFeature(id){
     const f=doc.features.find(f=>f.id===id);if(!f)return;
@@ -129,14 +141,17 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
     const actions=make('div',null,'feature-detail-actions');
     const go=button(children.length?'进入功能 →':'查看实现 →',()=>navigate(id),'feature-enter');
     const code=button('关联代码',()=>navigate(id,'code'),'feature-open-code');actions.append(go,code);parts.about.append(actions);
+    if(workspaceBridge&&!readOnly)actions.append(button('继续分析这个功能',()=>workspaceBridge.requestAnalysis({kind:'feature',featureId:id}),'feature-continue-analysis'));
+    const reference=referenceReport?.features.find(item=>item.id===id);
+    if(reference)parts.about.append(make('p',referenceLabels[reference.status]||reference.status,'meta'));
     parts.evidence.append(make('p',`${children.length} 个直接子功能 · ${items.length} 条显式代码关联`));
-    if(items.some(m=>!m.current))parts.evidence.append(make('div','含失效映射；旧锚点不会连接到当前代码。','callout'));
+    if(items.some(m=>!m.current))parts.evidence.append(make('div',workspaceBridge?'部分原记录仍来自旧依据。当前引用核对与原记录分开显示；未匹配时不会猜测连线。':'含失效映射；旧锚点不会连接到当前代码。','callout'));
     parts.evidence.append(make('p','代码角色仅用于分组。共享代码不表示功能依赖，也不表示执行顺序。','meta'),button('查看全部关联代码',()=>navigate(id,'code'),'detail-link'));
     if(!readOnly)parts.review.append(button('编辑功能说明',()=>featureForm(f),'detail-link'));
     else parts.review.append(make('p','历史标注只读；审阅决定仍属于当时的版本。','meta'));
     const creation=doc.history.find(h=>h.operation==='feature'&&h.subject===id);
     parts.review.append(make('p',creation?`标注来源：${creation.actorKind} / ${creation.actor}（自述，未认证）`:'标注来源未记录','meta'),make('p','人工接受是审阅决定，不会把候选证据升级为程序证明。','meta'));
-    finishInspector();
+    finishInspector();workspaceBridge?.context(id);
   }
   function snapshot(){saveInspector();return{scopeId,mode,selected,selectedMapping,detailTab};}
   function restore(saved){
@@ -159,11 +174,17 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
   function renderMapping(id){
     const item=report.mappings.find(m=>m.mapping.id===id);if(!item)return;
     const m=item.mapping,label=sceneView.label(item),parts=inspector('mapping:'+id,label.title,'代码关联');sceneView.select(id);
-    parts.about.append(make('p',label.file+(label.line?' : '+label.line:''),'feature-inspector-path'),make('p',`${roles[m.role]} · ${labels[m.decision]} · ${item.current?'证据匹配':'已失效'}`),make('p',m.rationale));
-    if(!item.current)parts.about.append(make('div','已失效：'+item.issues.map(x=>issues[x]||x).join('；'),'callout'));
+    const reference=referenceReport?.mappings.find(ref=>ref.id===id);
+    parts.about.append(make('p',label.file+(label.line?' : '+label.line:''),'feature-inspector-path'),make('p',`${roles[m.role]} · ${labels[m.decision]} · ${reference?'原决定保留':item.current?'证据匹配':'已失效'}`),make('p',m.rationale));
+    if(reference){
+      parts.about.append(make('p',referenceLabels[reference.status]||reference.status,'callout'),make('p',`原依据 ${(reference.originalBasis?.snapshot||'').slice(0,10)} · 当前核对 ${referenceReport.snapshot.slice(0,10)}。核对引用不表示本轮代码已验收。`,'meta'));
+      if(reference.status==='matched'&&reference.current?.nodeId)parts.about.append(button('查看核对后的代码依据',()=>{const saved=snapshot();onNode(reference.current.nodeId);inspectorKey=null;$('detail').prepend(backButton(saved));},'detail-link'));
+      if(reference.reasons.length)parts.evidence.append(make('p',reference.reasons.map(reason=>issues[reason]||reason).join('；'),'meta'));
+    }
+    if(!item.current&&!reference)parts.about.append(make('div','已失效：'+item.issues.map(x=>issues[x]||x).join('；'),'callout'));
     if(item.warnings.some(x=>['evidence-candidate','evidence-unresolved','evidence-external'].includes(x)))parts.about.append(make('p',item.warnings.filter(x=>['evidence-candidate','evidence-unresolved','evidence-external'].includes(x)).map(x=>warnings[x]).join(' · '),'feature-evidence-status'));
     if(item.current)parts.about.append(button('打开关联源码',()=>{const saved=snapshot();onNode(m.code.nodeId);inspectorKey=null;$('detail').prepend(backButton(saved));},'detail-link feature-source'));
-    else parts.about.append(make('p','当前代码已不匹配：禁止按同名跳转或自动重新绑定。请导入旧代码图，使用跨快照迁移。'));
+    else parts.about.append(make('p',workspaceBridge?'原记录仍绑定旧依据。当前核对单独展示，未匹配的引用不会按同名跳转或自动重新绑定。':'当前代码已不匹配：禁止按同名跳转或自动重新绑定。请导入旧代码图，使用跨快照迁移。'));
     parts.about.append(button('返回功能说明',()=>showFeature(m.featureId),'detail-link'));
     const caution=fold(parts.evidence,`证据限制 · ${item.warnings.length}`,'feature-warning-details');caution.append(make('p',item.warnings.map(x=>warnings[x]||x).join('；')));
     const identity=fold(parts.evidence,'原始符号与定位','feature-identity');identity.append(make('p',m.code.name,'meta'),make('p',m.code.nodeId,'meta'),make('p',`${m.code.file} · UTF-16 [${m.code.start}, ${m.code.end})`,'meta'),make('p','SHA-256 '+m.code.fileHash,'meta'));
@@ -186,7 +207,7 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
     if(readOnly)return false;
     try{
       saveInspector();doc=api.edit(graph,doc,operation,{expectedRevision:doc.revision,actor,actorKind:'manual',reason,at:new Date().toISOString()});
-      dirty=true;report=api.assess(graph,doc);refresh();
+      dirty=true;referenceReport=null;report=api.assess(graph,doc);refresh();
       if(workspaceBridge){workspaceBridge.changed(doc);notice('正在保存到本地工作区…');}
       else notice('内存草稿已修改，尚未写入文件。请导出 JSON 保存。');return true;
     }catch(error){notice(error.message);return false;}
@@ -223,6 +244,7 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
     const hierarchy=api.hierarchy(doc.features),path=id=>hierarchy.path(id).map(f=>f.title).join(' / ');
     box.append(make('h4',`关联功能 · ${items.length}（仅显式映射）`));
     for(const item of items)box.append(button(path(item.mapping.featureId),()=>{onActivate();showMapping(item.mapping.id);},'detail-link feature-reverse'));
+    if(workspaceBridge&&!readOnly)box.append(button('准备这部分代码的续分析任务',()=>workspaceBridge.requestAnalysis({kind:'changes',goal:`检查 ${n.location.file} 中的 ${n.name}，并结合当前待复核和未归属范围准备有依据的功能修订。`}), 'detail-link'));
     if(doc.features.length&&!readOnly)box.append(button('将此实体关联到功能…',()=>{
       onActivate();saveInspector();inspectorKey=null;const box=$('detail');box.dataset.workspaceEdit='true';box.replaceChildren(make('h3','添加代码映射'),make('p',n.name+' · '+n.location.file));context(box);
       const f=make('select'),r=make('select');f.setAttribute('aria-label','目标功能');r.setAttribute('aria-label','代码角色');
@@ -255,6 +277,15 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
     onInspect:()=>{saveInspector();inspectorKey=null;workbench.showDetails();},
     editContext:()=>({expectedRevision:doc.revision,actor,actorKind:'manual',reason,at:new Date().toISOString()}),
     onApplied:next=>{if(readOnly)return;doc=next;report=api.assess(graph,doc);dirty=true;resetView();workspaceBridge?.changed(doc);}});
-  workspaceBridge?.attach({document:()=>doc,saved:()=>{dirty=false;refresh();notice('已保存到本地工作区。');},failed:message=>{dirty=true;refresh();notice('保存失败：'+message+'。当前草稿仍保留，可导出 JSON。');}});
+  workspaceBridge?.attach({document:()=>doc,saved:()=>{dirty=false;refresh();notice('已保存到本地工作区。');},failed:message=>{dirty=true;refresh();notice('保存失败：'+message+'。当前草稿仍保留，可导出 JSON。');},
+    references:value=>{
+      if(referenceReport?.snapshot===value.snapshot&&referenceReport?.featureDigest===value.featureDigest)return;
+      referenceReport=value;if(active){refresh();if(!$('detail').hasAttribute('data-workspace-edit'))renderInspector();}
+    },
+    navigate:target=>{
+      if(typeof target.featureId==='string'&&doc.features.some(f=>f.id===target.featureId)){onActivate();jump(target.featureId);return true;}
+      if(typeof target.nodeId==='string'&&graph.nodes.some(n=>n.id===target.nodeId)){onNode(target.nodeId);return true;}
+      return false;
+    }});
   return {enter,leave,renderList,decorateNode,backButton,get active(){return active;}};
 }
