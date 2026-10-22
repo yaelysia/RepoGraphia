@@ -138,7 +138,7 @@ function inputReader(root: string, found: ReturnType<typeof inventory>) {
     realpath(file: string): string { return resolve(file) ?? path.resolve(file); },
     getDirectories(directory: string): string[] {
       const absolute = path.resolve(directory), key = fileKey(absolute);
-      if (!directoryNames.has(key)) directoryNames.set(key, { path: absolute, names: ts.sys.getDirectories(absolute).sort() });
+      if (!directoryNames.has(key)) directoryNames.set(key, { path: absolute, names: ts.sys.getDirectories(absolute) });
       return [...directoryNames.get(key)!.names];
     },
     readDirectory(directory: string, extensions?: readonly string[], excludes?: readonly string[], includes?: readonly string[], depth?: number): string[] {
@@ -148,7 +148,7 @@ function inputReader(root: string, found: ReturnType<typeof inventory>) {
         ...(depth === undefined ? {} : { depth }) };
       const key = JSON.stringify({ ...args, path: fileKey(absolute) });
       if (!directoryQueries.has(key)) directoryQueries.set(key, { ...args,
-        files: ts.sys.readDirectory(absolute, extensions, excludes, includes, depth).sort() });
+        files: ts.sys.readDirectory(absolute, extensions, excludes, includes, depth) });
       return [...directoryQueries.get(key)!.files];
     },
   };
@@ -157,8 +157,10 @@ function inputReader(root: string, found: ReturnType<typeof inventory>) {
     reads: [...reads.values()].map(item => ({ path: item.path, hash: item.text === undefined ? null : hash(item.text) })),
     files: [...files.values()].map(item => ({ ...item })), directories: [...directories.values()].map(item => ({ ...item })),
     realpaths: [...realpaths.values()].map(item => ({ ...item })),
-    directoryNames: [...directoryNames.values()].map(item => ({ ...item, names: [...item.names] })),
-    directoryQueries: [...directoryQueries.values()].map(item => ({ ...item, files: [...item.files],
+    // Canonicalize captured sets without changing compiler traversal or which
+    // callsites the existing bounded origin analysis encounters first.
+    directoryNames: [...directoryNames.values()].map(item => ({ ...item, names: [...item.names].sort() })),
+    directoryQueries: [...directoryQueries.values()].map(item => ({ ...item, files: [...item.files].sort(),
       ...(item.extensions ? { extensions: [...item.extensions] } : {}), ...(item.excludes ? { excludes: [...item.excludes] } : {}),
       ...(item.includes ? { includes: [...item.includes] } : {}) })),
   });

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import ts from 'typescript';
 import { analyze } from '../dist/analyze.js';
 import { checkAnalysisInputs, loadProject } from '../dist/project.js';
 
@@ -151,4 +152,56 @@ test('removed source and replaced configuration fail reconciliation instead of r
   fs.writeFileSync(path.join(root, 'tsconfig.json'), '{ broken config');
   assert.equal(checkAnalysisInputs(first.inputs).current, false);
   assert.throws(() => captured(root));
+});
+
+test('directory scans preserve compiler traversal order while captures use sorted copies', () => {
+  const root = fixture({ 'z.ts': 'function lastAtRoot() {}', 'a/nested.ts': 'function nested() {}' });
+  const project = loadProject(root), extensions = ['.ts'], includes = ['**/*.ts'];
+  const expected = ts.sys.readDirectory(root, extensions, undefined, includes);
+  assert.notDeepEqual(expected, [...expected].sort(), 'fixture must exercise root files before nested files');
+  const returned = project.inputReader.readDirectory(root, extensions, undefined, includes);
+  assert.deepEqual(returned, expected);
+  const inputs = project.captureInputs(), query = inputs.directoryQueries.find(item => item.path === root);
+  assert.deepEqual(query.files, [...expected].sort());
+  returned.reverse(); query.files.push('caller-only-mutation');
+  assert.deepEqual(project.inputReader.readDirectory(root, extensions, undefined, includes), expected);
+  assert.deepEqual(checkAnalysisInputs(project.captureInputs()), { current: true, changed: [] });
+});
+
+test('directory names retain the host order without exposing or mutating the cached result', () => {
+  const root = fixture({ 'a/one.ts': '', 'z/two.ts': '' }), project = loadProject(root);
+  const getDirectories = ts.sys.getDirectories, expected = getDirectories(root).sort().reverse();
+  assert.equal(expected.length, 2);
+  try {
+    ts.sys.getDirectories = directory => directory === root ? [...expected] : getDirectories(directory);
+    const returned = project.inputReader.getDirectories(root);
+    assert.deepEqual(returned, expected);
+    const inputs = project.captureInputs(), item = inputs.directoryNames.find(item => item.path === root);
+    assert.deepEqual(item.names, [...expected].sort());
+    returned.push('caller-only-mutation'); item.names.reverse();
+    assert.deepEqual(project.inputReader.getDirectories(root), expected);
+    assert.deepEqual(checkAnalysisInputs(project.captureInputs()), { current: true, changed: [] });
+  } finally { ts.sys.getDirectories = getDirectories; }
+});
+
+test('input capture does not change the callers selected by the existing origin budget', () => {
+  const root = fixture({
+    'tsconfig.json': JSON.stringify({ compilerOptions: config.compilerOptions, include: ['**/*.ts'] }),
+    'main.ts': 'function accept(callback: () => void) { callback(); }',
+    'z.ts': 'function rootFirst() {}\naccept(rootFirst);',
+    ...Object.fromEntries(Array.from({ length: 17 }, (_, i) => [`a/caller${String(i).padStart(2, '0')}.ts`,
+      `function nested${i}() {}\naccept(nested${i});`])),
+  });
+  const { graph, inputs } = captured(root), nodes = new Map(graph.nodes.map(node => [node.id, node]));
+  const relation = graph.relations.find(edge => edge.targetLabel === 'callback');
+  const origins = relation.evidence.valueOrigins;
+  assert.equal(relation.status, 'candidate'); assert.equal(origins.complete, false);
+  assert.equal(origins.truncated, true); assert.equal(origins.limits.maxCallsites, 16);
+  assert.deepEqual(origins.stops.map(stop => stop.reason), ['open-callers', 'caller-budget']);
+  assert.deepEqual(origins.sources.map(source => nodes.get(source.target).name),
+    ['rootFirst', ...Array.from({ length: 15 }, (_, i) => `nested${i}`)]);
+  assert.deepEqual(origins.sources.map(source => source.path.find(point => point.kind === 'direct-callsite').location.file),
+    ['z.ts', ...Array.from({ length: 15 }, (_, i) => `a/caller${String(i).padStart(2, '0')}.ts`)]);
+  assert.deepEqual([...relation.targets].sort(), origins.sources.map(source => source.target).sort());
+  assert.deepEqual(checkAnalysisInputs(inputs), { current: true, changed: [] });
 });
