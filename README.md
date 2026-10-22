@@ -107,6 +107,8 @@ node dist/cli.js features render "./reports/codex-monitor-r1/graph.json" "./repo
 
 打开新 HTML 的「功能映射」。路径按实际报告调整，必须配对同一快照。详细交互和边界见 [功能地图阅读说明](docs/feature-map-visual.md)。
 
+功能标注可显式提供 `summary`（一句解释）和 `parentId`（父功能），用于按实际深度探索功能组成；不会从共享代码猜测层级。新字段使用 FeatureMap schema 3，schema 1/2 的旧标注仍可直接读取和渲染。只浏览不会升级或改写文档；首次保存新字段时才升级，并保留原证据快照。Agent 提案协议仍为版本 1。
+
 代码关系的四种状态：
 
 | 状态 | 意义 |

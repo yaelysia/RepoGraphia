@@ -118,7 +118,7 @@ export function createAgentApi(graph: CodeGraph, original?: unknown) {
   }
   function propose(input: unknown, author: string, at = new Date().toISOString()) {
     fields(input, ['schemaVersion','basis','expectedRevision','baseDigest','batchId','scope','unexplored','features','mappings','checks'], 'proposal');
-    require(input.schemaVersion === 1, 'INVALID_PROPOSAL', 'Unsupported proposal schema', 'Use proposal schemaVersion 1, not FeatureMap schema 2.');
+    require(input.schemaVersion === 1, 'INVALID_PROPOSAL', 'Unsupported proposal schema', 'Use proposal schemaVersion 1, not the FeatureMap sidecar schema.');
     require(!assessment.globalIssues.length && basis.analysisRevision !== null, 'STALE_BASE', 'Annotations do not match a versioned graph', 'Explicitly migrate the sidecar first, or omit it to start a separate new document.');
     fields(input.basis, ['snapshot','analysisRevision','compilerVersion','config'], 'basis');
     require(Object.keys(basis).every(k => (input.basis as Record<string, unknown>)[k] === basis[k as keyof FeatureBasis]),
@@ -131,18 +131,30 @@ export function createAgentApi(graph: CodeGraph, original?: unknown) {
     array(input.unexplored, 'unexplored', 50); input.unexplored.forEach(x => text(x, 'unexplored area'));
     require(input.mappings.length > 0, 'EMPTY_PROPOSAL', 'No mappings proposed', 'Keep unknown capabilities as a checkpoint; submit only after obtaining code evidence.');
     const featureIds = new Set(map.features.map(f => f.id)), mappingIds = new Set(map.mappings.map(m => m.id));
-    const titles = new Set(map.features.map(f => f.title.trim().toLowerCase()));
+    const titleKey = (f: Feature) => JSON.stringify([f.parentId ?? null, f.title.trim().toLowerCase()]);
+    const titles = new Set(map.features.map(titleKey));
     const pairs = new Set(map.mappings.map(m => JSON.stringify([m.featureId, m.code.nodeId])));
     const context = (m: FeatureMap) => ({ expectedRevision: m.revision, actor: author, actorKind: 'agent' as const, at,
       reason: `Agent proposal ${input.batchId}: ${input.scope}` });
-    let result = clone(map);
     for (const item of input.features) {
-      fields(item, ['id','title','description','questions'], 'feature');
+      fields(item, ['id','title','description','questions','summary','parentId'], 'feature');
       text(item.title, 'feature title', 200); text(item.id, 'feature ID', 200);
-      require(!featureIds.has(item.id) && !titles.has(item.title.trim().toLowerCase()), 'EXISTING_FEATURE',
-        'Proposal would replace or duplicate an existing feature', 'Use its existing featureId for new associations. Meaning corrections require the review workflow.');
-      result = features.edit(graph, result, { op: 'feature', feature: item as unknown as Feature }, context(result));
-      featureIds.add(item.id); titles.add(item.title.trim().toLowerCase());
+      const title = titleKey(item as unknown as Feature);
+      require(!featureIds.has(item.id) && !titles.has(title), 'EXISTING_FEATURE',
+        'Proposal would replace or duplicate an existing feature in the same parent', 'Use its existing featureId for new associations. Meaning corrections require the review workflow.');
+      featureIds.add(item.id); titles.add(title);
+    }
+    const additions = input.features as unknown as Feature[];
+    let tree: ReturnType<typeof features.hierarchy>;
+    try { tree = features.hierarchy([...map.features, ...additions]); }
+    catch (error) { throw new AgentError('INVALID_HIERARCHY', error instanceof Error ? error.message : String(error),
+      'Use explicit existing or same-batch parent IDs, with no cycles. Keep summary at most 200 characters.'); }
+    let result = clone(map);
+    const pending = new Set(additions.map(f => f.id)), stack = tree.children().reverse();
+    while (stack.length) {
+      const item = stack.pop()!;
+      if (pending.has(item.id)) result = features.edit(graph, result, { op: 'feature', feature: item }, context(result));
+      stack.push(...tree.children(item.id).reverse());
     }
     for (const item of input.mappings) {
       fields(item, ['op','id','featureId','nodeId','role','rationale','relationIds'], 'mapping');

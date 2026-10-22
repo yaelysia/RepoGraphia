@@ -31,4 +31,23 @@ A proposal is NOT a FeatureMap. Start with `data.proposalHeader`, preserving its
 
 The example is only the semantic part; merging it with the header is required. Write JSON with a file tool or serializer rather than long shell-escaped inline arguments. Quoting an exact ID as one argument is necessary for shell safety. A small artifact-writing script is fine; rebuilding call resolution or fabricating snapshot metadata is not.
 
+## Explicit feature hierarchy
+
+Protocol/proposal `schemaVersion` stays **1**. Each feature may additionally contain `summary` (nonempty, at most 200 characters) and `parentId` (the exact ID of an existing or same-batch feature):
+
+```json
+{
+  "id": "guard-request",
+  "title": "Check whether the request is enabled",
+  "summary": "Allow enabled requests to reach the sender.",
+  "parentId": "capability-id",
+  "description": "Checks the enabled flag before calling the supplied sender; this does not prove delivery.",
+  "questions": []
+}
+```
+
+Omit optional fields when unused; do not supply `null` or an empty string. Parent/child order within the batch does not matter. The receiver validates all parent references and cycles before applying parents first. Titles must be unique within the same parent; feature IDs remain unique across the document. Each new parent and child still needs its own mapping, support check and limit check. A parent cannot borrow a child's checks.
+
+`parentId` means containment only, not a call, dependency or execution order. Do not infer it from shared entities, directories or mapping roles. Existing features cannot be reparented through this append-only channel. A successful proposal using the new optional fields yields **FeatureMap schema 3**, with original mapping bases retained; legacy proposals remain supported. The proposal schema and the resulting sidecar schema are separate contracts.
+
 SNAPSHOT_CONFLICT means re-explore that snapshot, not edit a hash. REVISION_CONFLICT means reread the intended sidecar and reconcile. EXISTING_MAPPING includes rejected pairs; it cannot be bypassed with a different ID/role. SOURCE_REQUIRED means source is missing, not an invitation to invent a quote. QUOTE_MISMATCH means choose a unique original excerpt. A valid reference or quote is not proof that an agent read it or that its explanation is correct.

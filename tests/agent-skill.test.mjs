@@ -12,9 +12,9 @@ test('Skill has bounded routing metadata and complete relative references',()=>{
  assert.match(lf,header);assert.match(lf.replace(/\n/g,'\r\n'),header);
  assert.ok(!header.test(lf.replace('name: repographia-function-map','name: another-skill')));
  assert.ok(!header.test(lf.replace('description: ', 'wrong-field: ')));
- assert.match(skill,/version: "1.1"/);assert.ok(skill.split('\n').length<500);
+ assert.match(skill,/version: "1.2"/);assert.ok(skill.split('\n').length<500);
  for(const [,ref] of skill.matchAll(/\]\((references\/[^)]+)\)/g)) assert.ok(fs.existsSync(path.join(root,ref)));
- for(const required of ['claim table','counterexample','TRIAL.md','not independent','nextOffset','agent submit'])
+ for(const required of ['claim table','counterexample','TRIAL.md','not independent','nextOffset','agent submit','parentId','FeatureMap schema 3'])
    assert.ok(skill.includes(required),required);
 });
 test('frozen self-trial preserves original proposal and concrete revisions rather than self-approval',()=>{
