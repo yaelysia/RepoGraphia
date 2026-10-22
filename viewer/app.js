@@ -1,6 +1,7 @@
 (() => {
   'use strict';
   const graph = JSON.parse(document.getElementById('graph-data').textContent);
+  const workspaceBridge = typeof createWorkspaceBridge === 'function' ? createWorkspaceBridge() : null;
   const $ = id => document.getElementById(id);
   const resolution = $('resolution-data') ? JSON.parse($('resolution-data').textContent) : null;
   const reasonOf = e => resolution?.groups.some(g => g.reason === e.evidence.reason) ? e.evidence.reason : 'unclassified';
@@ -308,7 +309,7 @@
   const first = graph.nodes.filter(n=>n.kind==='file' && visible(n)).sort((a,b)=>(degree.get(b.id)||0)-(degree.get(a.id)||0))[0];
   projectView = createProjectMapView({ graph, api:ProjectMap, make, button, svgEl,
     onFile:id=>select(id), onEvidence:(edge,options)=>showEdge(edge,initialized&&!options?.restore), onNavigation:()=>{page=60;renderList();}, onInspect:()=>{shell.showDetails();shell.toggleNavigation(false,false);}, onEnter:()=>shell.revealMap() });
-  featureView = createFeatureMapView({ graph,api:FeatureMap,initial:JSON.parse($('feature-data').textContent),make,button,shell,
+  featureView = createFeatureMapView({ graph,api:FeatureMap,initial:JSON.parse($('feature-data').textContent),make,button,shell,workspaceBridge,
     onNode:id=>select(id),onEvidence:edge=>showEdge(edge),onActivate:()=>setTab('features') });
   $('return-project').onclick=()=>setTab('project');
   if (first) select(first.id); else { renderList(); renderMap(); }

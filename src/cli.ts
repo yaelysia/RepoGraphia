@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import { runAgentCli } from './agent-cli.js';
+import { runWorkspaceCli } from './workspace-cli.js';
 import { requireNewDirectory, writeNewBundle } from './output.js';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
@@ -17,6 +18,7 @@ import type { CodeGraph, RelationKind, Status } from './model.js';
 const help = `RepoGraphia 0.1.0 — evidence-grounded static code explorer
 
   node dist/cli.js agent --help
+  node dist/cli.js workspace <repository> --out <workspace-directory> [--project tsconfig.json] [--port 0]
 
   node dist/cli.js analyze <repository> --out <report-directory> [--project tsconfig.json] [--include-source]
   node dist/cli.js query <graph.json> search <text>
@@ -40,7 +42,11 @@ The report contains source excerpts; --include-source also embeds complete index
 Analyze writes a NEW directory outside the repository; existing reports are never overwritten.
 Diagnostics/unindexed regions remain visible. Use a new --out path for each snapshot.
 `;
-if (process.argv[2] === 'agent') process.exitCode = runAgentCli(process.argv.slice(3));
+if (process.argv[2] === 'workspace') {
+  try { await runWorkspaceCli(process.argv.slice(3)); }
+  catch (error) { console.error('RepoGraphia: ' + (error instanceof Error ? error.message : String(error))); process.exitCode = 1; }
+}
+else if (process.argv[2] === 'agent') process.exitCode = runAgentCli(process.argv.slice(3));
 else try {
   const { positionals: args, values } = parseArgs({ allowPositionals: true, options: {
     features: { type: 'string' }, patch: { type: 'string' }, author: { type: 'string' },

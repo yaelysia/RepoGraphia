@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>RepoGraphia · 持续工作区</title>
+  <link rel="stylesheet" href="/workspace.css">
+  <script src="/workspace.js" defer></script>
+</head>
+<body>
+  <header class="workspace-header">
+    <div class="workspace-identity"><span class="workspace-brand" aria-hidden="true">R<span>g</span></span><div><span class="eyebrow">REPOGRAPHIA · 持续工作区</span><h1 id="workspace-name">正在连接项目</h1></div></div>
+    <div class="analysis-state"><span class="status-dot" aria-hidden="true"></span><div><strong id="analysis-status" role="status">连接中</strong><small id="last-checked">仅观察已保存的文件</small></div></div>
+    <div class="header-actions"><button id="refresh-workspace" disabled>检查更新</button><button id="export-report" disabled>导出报告</button><button id="start-task" class="primary" disabled>开始一轮开发</button></div>
+  </header>
+  <div id="workspace-notice" class="notice" role="status" hidden></div>
+  <section class="workspace-controls" aria-label="版本与开发任务">
+    <nav class="mode-tabs" aria-label="工作区视图"><button id="show-map" class="active" aria-pressed="true">地图工作台</button><button id="show-changes" aria-pressed="false">本轮变化 <span id="change-count"></span></button></nav>
+    <div class="version-controls"><label for="viewed-version">正在审阅</label><select id="viewed-version" aria-label="正在审阅的代码版本" disabled></select><button id="open-latest" class="update-pill" hidden>查看新版本</button><span id="latest-version" class="visually-hidden"></span></div>
+    <div class="save-controls"><span id="save-status" role="status">尚未载入标注</span><button id="retry-save" hidden>重试保存</button><button id="export-draft" hidden>导出草稿</button><button id="reload-saved" hidden>重载已保存内容</button></div>
+  </section>
+  <div id="feature-basis-notice" class="basis-notice" hidden></div>
+  <main>
+    <section id="map-view" class="map-view" aria-label="固定版本地图">
+      <div id="map-placeholder" class="empty-state"><span class="empty-orbit" aria-hidden="true"></span><h2>正在建立当前代码图</h2><p>完成后即可开始探索。已有保存内容会在连接后恢复。</p></div>
+      <iframe id="workspace-report" title="项目与功能地图工作台" sandbox="allow-scripts allow-same-origin allow-downloads allow-modals" hidden></iframe>
+    </section>
+    <section id="changes-view" class="changes-view" aria-label="本轮代码变化" hidden>
+      <div class="changes-heading"><div><span class="eyebrow">CHANGES SINCE START</span><h2>本轮实际发生了什么</h2><p id="comparison-subtitle">选择本轮起点，与正在审阅的代码版本比较。</p></div><div class="task-picker"><label for="task-select">开发任务</label><select id="task-select" aria-label="开发任务"><option value="">尚未记录起点</option></select><button id="open-task-start" disabled>查看起点地图</button></div></div>
+      <div id="comparison-summary" class="comparison-summary"></div>
+      <div id="comparison-note" class="comparison-note">这里展示任务期间观察到的代码变化。目标由人填写；变化不能证明修改者、执行进度或功能已经完成。</div>
+      <div class="compare-layout"><aside class="changed-files-panel"><h3>变化文件 <span id="file-count"></span></h3><div id="changed-files" class="changed-files"></div></aside><section id="change-detail" class="change-detail"><div class="empty-state"><h3>先记录本轮开发的起点</h3><p>起点会包含当时已有的未提交修改。之后保存代码，即可查看这一轮新增的变化。</p></div></section></div>
+    </section>
+  </main>
+  <footer class="workspace-footer"><span id="workspace-scope">已保存文件 · 当前选择的项目范围 · 本地观察</span><span id="workspace-location"></span></footer>
+  <dialog id="task-dialog"><form id="task-form"><span class="eyebrow">START A DEVELOPMENT ROUND</span><h2>记录本轮开发的起点</h2><p>先核对当前已保存代码，再固定代码图和标注版本。已经存在的改动会纳入起点。</p><label for="task-title">这一轮准备做什么？</label><input id="task-title" name="title" maxlength="200" placeholder="例如：为报告增加 CSV 导出" autocomplete="off"><p id="task-dialog-status" role="status"></p><div class="dialog-actions"><button type="button" id="cancel-task">取消</button><button id="confirm-task" type="submit" class="primary">建立起点</button></div></form></dialog>
+</body>
+</html>

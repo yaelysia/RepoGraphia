@@ -40,22 +40,164 @@ export function inventory(root: string) {
   walk(root);
   return { files, symlinks, ignored };
 }
+
+/** Captured compiler inputs, including unsuccessful resolution queries. No source text. */
+export interface AnalysisInputs {
+  schemaVersion: 1;
+  root: string;
+  inventory: ReturnType<typeof inventory>;
+  reads: { path: string; hash: string | null }[];
+  files: { path: string; exists: boolean }[];
+  directories: { path: string; exists: boolean }[];
+  realpaths: { path: string; resolved: string | null }[];
+  directoryNames: { path: string; names: string[] }[];
+  directoryQueries: { path: string; extensions?: string[]; excludes?: string[]; includes?: string[]; depth?: number; files: string[] }[];
+}
+
+function realPath(file: string): string | null {
+  try { return fs.realpathSync(file); } catch { return null; }
+}
+function observedText(root: string, file: string, resolved: string | null): string | undefined {
+  // Preserve the source-symlink boundary. External declarations/configs may be read,
+  // but an in-repository source link cannot smuggle an external implementation in.
+  if (!resolved || inside(root, file) && !isDependency(file) && !inside(root, resolved)) return undefined;
+  return ts.sys.readFile(file);
+}
+const sameList = (a: readonly string[], b: readonly string[]) =>
+  a.length === b.length && a.every((value, index) => value === b[index]);
+
+/** Reconcile observations with disk; this is not a filesystem-atomic snapshot. */
+export function checkAnalysisInputs(inputs: AnalysisInputs): { current: boolean; changed: string[] } {
+  if (inputs.schemaVersion !== 1) throw new Error('Unsupported analysis input capture');
+  const changed = new Set<string>();
+  try {
+    const found = inventory(inputs.root);
+    if (!sameList(found.files, inputs.inventory.files) || !sameList(found.symlinks, inputs.inventory.symlinks)
+      || !sameList(found.ignored, inputs.inventory.ignored)) changed.add(inputs.root);
+  } catch { changed.add(inputs.root); }
+  const resolutions = new Map<string, string | null>();
+  const resolve = (file: string) => {
+    const key = fileKey(file);
+    if (!resolutions.has(key)) resolutions.set(key, realPath(file));
+    return resolutions.get(key)!;
+  };
+  for (const item of inputs.realpaths) if (resolve(item.path) !== item.resolved) changed.add(item.path);
+  for (const item of inputs.reads) {
+    const text = observedText(inputs.root, item.path, resolve(item.path));
+    if ((text === undefined ? null : hash(text)) !== item.hash) changed.add(item.path);
+  }
+  for (const item of inputs.files) if (ts.sys.fileExists(item.path) !== item.exists) changed.add(item.path);
+  for (const item of inputs.directories) if (ts.sys.directoryExists(item.path) !== item.exists) changed.add(item.path);
+  for (const item of inputs.directoryNames) {
+    try { if (!sameList(ts.sys.getDirectories(item.path).sort(), item.names)) changed.add(item.path); }
+    catch { changed.add(item.path); }
+  }
+  for (const item of inputs.directoryQueries) {
+    try {
+      const files = ts.sys.readDirectory(item.path, item.extensions, item.excludes, item.includes, item.depth).sort();
+      if (!sameList(files, item.files)) changed.add(item.path);
+    } catch { changed.add(item.path); }
+  }
+  return { current: !changed.size, changed: [...changed].sort() };
+}
+
+/** One reader is shared by config parsing and the CompilerHost for this rebuild. */
+function inputReader(root: string, found: ReturnType<typeof inventory>) {
+  const reads = new Map<string, { path: string; text: string | undefined }>();
+  const files = new Map<string, { path: string; exists: boolean }>();
+  const directories = new Map<string, { path: string; exists: boolean }>();
+  const realpaths = new Map<string, { path: string; resolved: string | null }>();
+  const directoryNames = new Map<string, { path: string; names: string[] }>();
+  const directoryQueries = new Map<string, AnalysisInputs['directoryQueries'][number]>();
+  const readHashes = new Map<string, string>();
+  const resolve = (file: string) => {
+    const absolute = path.resolve(file), key = fileKey(absolute);
+    if (!realpaths.has(key)) realpaths.set(key, { path: absolute, resolved: realPath(absolute) });
+    return realpaths.get(key)!.resolved;
+  };
+  const reader = {
+    readFile(file: string): string | undefined {
+      const absolute = path.resolve(file), key = fileKey(absolute);
+      if (!reads.has(key)) {
+        const text = observedText(root, absolute, resolve(absolute));
+        reads.set(key, { path: absolute, text });
+        if (text !== undefined) readHashes.set(normalize(path.relative(root, absolute)), hash(text));
+      }
+      return reads.get(key)!.text;
+    },
+    fileExists(file: string): boolean {
+      const absolute = path.resolve(file), key = fileKey(absolute);
+      if (!files.has(key)) files.set(key, { path: absolute, exists: ts.sys.fileExists(absolute) });
+      return files.get(key)!.exists;
+    },
+    directoryExists(directory: string): boolean {
+      const absolute = path.resolve(directory), key = fileKey(absolute);
+      if (!directories.has(key)) directories.set(key, { path: absolute, exists: ts.sys.directoryExists(absolute) });
+      return directories.get(key)!.exists;
+    },
+    realpath(file: string): string { return resolve(file) ?? path.resolve(file); },
+    getDirectories(directory: string): string[] {
+      const absolute = path.resolve(directory), key = fileKey(absolute);
+      if (!directoryNames.has(key)) directoryNames.set(key, { path: absolute, names: ts.sys.getDirectories(absolute) });
+      return [...directoryNames.get(key)!.names];
+    },
+    readDirectory(directory: string, extensions?: readonly string[], excludes?: readonly string[], includes?: readonly string[], depth?: number): string[] {
+      const absolute = path.resolve(directory);
+      const args = { path: absolute, ...(extensions ? { extensions: [...extensions] } : {}),
+        ...(excludes ? { excludes: [...excludes] } : {}), ...(includes ? { includes: [...includes] } : {}),
+        ...(depth === undefined ? {} : { depth }) };
+      const key = JSON.stringify({ ...args, path: fileKey(absolute) });
+      if (!directoryQueries.has(key)) directoryQueries.set(key, { ...args,
+        files: ts.sys.readDirectory(absolute, extensions, excludes, includes, depth) });
+      return [...directoryQueries.get(key)!.files];
+    },
+  };
+  const capture = (): AnalysisInputs => ({ schemaVersion: 1, root,
+    inventory: { files: [...found.files], symlinks: [...found.symlinks], ignored: [...found.ignored] },
+    reads: [...reads.values()].map(item => ({ path: item.path, hash: item.text === undefined ? null : hash(item.text) })),
+    files: [...files.values()].map(item => ({ ...item })), directories: [...directories.values()].map(item => ({ ...item })),
+    realpaths: [...realpaths.values()].map(item => ({ ...item })),
+    // Canonicalize captured sets without changing compiler traversal or which
+    // callsites the existing bounded origin analysis encounters first.
+    directoryNames: [...directoryNames.values()].map(item => ({ ...item, names: [...item.names].sort() })),
+    directoryQueries: [...directoryQueries.values()].map(item => ({ ...item, files: [...item.files].sort(),
+      ...(item.extensions ? { extensions: [...item.extensions] } : {}), ...(item.excludes ? { excludes: [...item.excludes] } : {}),
+      ...(item.includes ? { includes: [...item.includes] } : {}) })),
+  });
+  return { reader, capture, readHashes };
+}
+
+/** Snapshot identity includes inventory/failed queries, not just successfully read files. */
+export function analysisInputDigest(inputs: AnalysisInputs): string {
+  const relative = (file: string) => normalize(path.relative(inputs.root, file));
+  const byPath = <T extends { path: string }>(items: T[]) => items.map(item => ({ ...item, path: relative(item.path) }))
+    .sort((a, b) => a.path.localeCompare(b.path) || JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  return hash(JSON.stringify({ schemaVersion: inputs.schemaVersion,
+    inventory: { ...inputs.inventory, files: inputs.inventory.files.map(relative) },
+    reads: byPath(inputs.reads), files: byPath(inputs.files), directories: byPath(inputs.directories),
+    realpaths: byPath(inputs.realpaths.map(item => ({ ...item, resolved: item.resolved === null ? null : relative(item.resolved) }))),
+    directoryNames: byPath(inputs.directoryNames),
+    directoryQueries: byPath(inputs.directoryQueries.map(item => ({ ...item, files: item.files.map(relative) }))),
+  }));
+}
+
 export function loadProject(input: string, configName?: string) {
   const root = fs.realpathSync(path.resolve(input));
   if (!fs.statSync(root).isDirectory()) throw new Error('Repository path must be a directory');
   const found = inventory(root);
+  const inputs = inputReader(root, found), reader = inputs.reader;
   const configPath = configName ? path.resolve(root, configName)
-    : fs.existsSync(path.join(root, 'tsconfig.json')) ? path.join(root, 'tsconfig.json') : undefined;
-  if (configPath && !inside(root, fs.realpathSync(configPath))) throw new Error('Project config must be inside the repository');
+    : reader.fileExists(path.join(root, 'tsconfig.json')) ? path.join(root, 'tsconfig.json') : undefined;
+  if (configPath && !inside(root, reader.realpath(configPath))) throw new Error('Project config must be inside the repository');
   const defaults: ts.CompilerOptions = { allowJs: true, checkJs: false, noEmit: true,
     target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext,
     moduleResolution: ts.ModuleResolutionKind.Bundler, jsx: ts.JsxEmit.ReactJSX, skipLibCheck: true };
   let options = defaults, roots = found.files.filter(isSource);
   const diagnostics: AnalysisDiagnostic[] = [];
   if (configPath) {
-    const raw = ts.readConfigFile(configPath, ts.sys.readFile);
+    const raw = ts.readConfigFile(configPath, reader.readFile);
     if (raw.error) throw new Error(ts.flattenDiagnosticMessageText(raw.error.messageText, '\n'));
-    const parsed = ts.parseJsonConfigFileContent(raw.config, ts.sys, path.dirname(configPath), { noEmit: true }, configPath);
+    const parsed = ts.parseJsonConfigFileContent(raw.config, { ...ts.sys, ...reader }, path.dirname(configPath), { noEmit: true }, configPath);
     const fatal = parsed.errors.filter(d => d.code !== 18003);
     if (fatal.length) throw new Error(fatal.map(d => ts.flattenDiagnosticMessageText(d.messageText, '\n')).join('\n'));
     options = { ...defaults, allowJs: false, ...parsed.options, noEmit: true, incremental: false };
@@ -67,20 +209,11 @@ export function loadProject(input: string, configName?: string) {
   const permitted = new Set(found.files.map(f => fileKey(f)));
   roots = roots.filter(f => permitted.has(fileKey(f)));
   const host = ts.createCompilerHost(options);
-  const originalRead = host.readFile;
-  const readHashes = new Map<string, string>();
-  host.readFile = file => {
-    // Dependencies/configuration may be read, never executed or emitted.
-    if (inside(root, file) && !isDependency(file)) {
-      try { if (!inside(root, fs.realpathSync(file))) return undefined; } catch { return undefined; }
-    }
-    const text = originalRead(file);
-    if (text !== undefined) readHashes.set(normalize(path.relative(root, file)), hash(text));
-    return text;
-  };
+  Object.assign(host, reader);
   const program = ts.createProgram({ rootNames: roots, options, host });
   const sources = program.getSourceFiles().filter(sf => !sf.isDeclarationFile && permitted.has(fileKey(sf.fileName)) && isSource(sf.fileName));
-  return { root, configPath, found, options, program, sources, diagnostics, readHashes };
+  return { root, configPath, found, options, program, sources, diagnostics, readHashes: inputs.readHashes,
+    inputReader: reader, captureInputs: inputs.capture };
 }
 export function gitState(root: string): { commit: string | null; dirty: boolean | null } {
   try {

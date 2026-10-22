@@ -3,6 +3,8 @@
 ## Product boundary
 Independent static exploration tool. Codex-Monitor is a read-only fixture, never a destination for changes. R1 focuses on programmatic evidence and an offline code map. Do not silently add model calls, dynamic execution, background monitoring or target dependency installation.
 
+The explicitly started `workspace` command may observe saved local files, persist versions outside the analyzed tree and serve the workbench over loopback. Offline commands remain fixed snapshots. Neither mode runs target applications, build/test scripts or AI; starting a development task only records its checked baseline.
+
 ## Non-negotiable semantics
 - A compiler declaration binding is not runtime execution or proof of target uniqueness.
 - Keep call, construct, tag, callback-passing, JSX, imports and heritage relations distinct.
@@ -20,7 +22,7 @@ Use the locked dependencies with Node 22+, then `npm run build` and `npm test`. 
 A real sample is pinned in scripts/verify-sample.mjs. Use a separate checkout at that exact revision, never reset a user's working checkout. Sample validation must not execute the sample application. Browser smoke checks are in scripts/check-viewer.py.
 
 ## Implementation
-Reuse TypeScript compiler APIs; avoid duplicating a compiler or introducing graph databases and frameworks without a demonstrated need. Keep core analysis reusable separately from HTML. Source-derived strings must never enter executable HTML; no network resources or arbitrary commands in the viewer. Outputs must stay outside the analyzed source tree. Do not run git status in the analyzer because configured helper programs may execute.
+Reuse TypeScript compiler APIs; avoid duplicating a compiler or introducing graph databases and frameworks without a demonstrated need. Keep core analysis reusable separately from HTML. Source-derived strings must never enter executable HTML; no remote resources or arbitrary commands in the viewer. Offline reports keep network access disabled; the continuous-workspace shell may communicate only with its bound local service. Outputs must stay outside the analyzed source tree. Do not run git status in the analyzer because configured helper programs may execute.
 
 Keep reason codes tied to compiler/declaration evidence, never guessed runtime causes. Lowering unresolved counts must distinguish external-boundary reclassification from project-target candidates; use the same-input baseline comparison and never discard callsites to improve counts.
 
