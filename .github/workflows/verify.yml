@@ -44,6 +44,7 @@ jobs:
       - run: python scripts/check-workbench-shell.py reports/feature-workbench
       - run: python scripts/check-workspace.py reports/workspace
       - run: python scripts/check-feature-tasks.py reports/feature-tasks
+      - run: python scripts/check-workspace-export.py reports/workspace-export
       - run: python scripts/check-development-review.py reports/development-review
       - uses: actions/upload-artifact@v4
         with:
@@ -54,6 +55,7 @@ jobs:
             reports/feature-workbench
             reports/workspace
             reports/feature-tasks
+            reports/workspace-export
             reports/development-review
           retention-days: 7
           if-no-files-found: error

@@ -5,6 +5,8 @@ import { createProjectMapApi } from './project-map.js';
 import { createFeatureMigrationApi } from './feature-migration.js';
 import { createFeatureSceneApi } from './feature-scene.js';
 import { createFeatureMapApi } from './feature-map.js';
+import { validateFeatureReferenceReport } from './feature-references.js';
+import type { FeatureReferenceReport } from './feature-references.js';
 import { resolutionSummary } from './diagnostics.js';
 
 /** Prevent repository text from breaking out of a non-executable JSON script. */
@@ -14,6 +16,8 @@ export function safeJson(value: unknown): string {
 }
 export interface WorkspaceRenderOptions {
   workspace?: { snapshot: string; featureDigest: string | null; readOnly?: boolean };
+  /** Frozen workspace check results, separate from the original annotation and its strict assessment. */
+  featureReferences?: FeatureReferenceReport;
 }
 export function renderHtml(graph: CodeGraph, features?: unknown, options: WorkspaceRenderOptions = {}): string {
   if (options.workspace && (options.workspace.snapshot !== graph.project.snapshot ||
@@ -26,6 +30,10 @@ export function renderHtml(graph: CodeGraph, features?: unknown, options: Worksp
   const featureApi = createFeatureMapApi();
   const featureData = features === undefined ? null : featureApi.validate(features);
   if (featureData) featureApi.assess(graph, featureData);
+  if (options.featureReferences) {
+    if (!featureData) throw new Error('Feature references require their original annotation document');
+    validateFeatureReferenceReport(graph, featureData, options.featureReferences);
+  }
   const featureUi = fs.readFileSync(new URL('../viewer/feature-map-view.js', import.meta.url), 'utf8');
   const sceneUi = fs.readFileSync(new URL('../viewer/feature-scene-view.js', import.meta.url), 'utf8');
   const workbenchUi = fs.readFileSync(new URL('../viewer/feature-workbench-view.js', import.meta.url), 'utf8');
@@ -42,6 +50,7 @@ export function renderHtml(graph: CodeGraph, features?: unknown, options: Worksp
 <title>RepoGraphia · Code Explorer</title><style>${css}${options.workspace ? '\nbody.workspace-embedded .topbar .brand { display:none; } body.workspace-embedded .topbar { height:60px; } body.workspace-embedded .workspace { min-height:480px; height:calc(100dvh - 156px); } @media(max-width:736px){body.workspace-embedded .topbar{height:104px;grid-template-columns:1fr;grid-template-rows:36px 36px}body.workspace-embedded .primary-modes{grid-column:1;grid-row:1;justify-self:start}body.workspace-embedded .workspace{height:calc(100dvh - 200px)}}' : ''}</style></head><body class="workbench${options.workspace ? ' workspace-embedded' : ''}" data-view="project"><p id="viewer-startup" class="callout" role="status">正在加载代码地图。若此提示一直显示且地图为空，页面脚本未成功启动；请更新 RepoGraphia、重新构建并生成新报告。无需关闭浏览器安全设置。</p>${template}
 <script id="graph-data" type="application/json">${safeJson(graph)}</script>
 <script id="feature-data" type="application/json">${safeJson(featureData)}</script>
+${options.featureReferences ? '<script id="feature-reference-data" type="application/json">' + safeJson(options.featureReferences) + '</script>' : ''}
 ${options.workspace ? '<script id="workspace-data" type="application/json">' + safeJson(options.workspace) + '</script>' : ''}
 <script id="resolution-data" type="application/json">${safeJson(resolutionSummary(graph))}</script><script>${script}</script></body></html>`;
 }

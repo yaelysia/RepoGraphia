@@ -1,5 +1,5 @@
 /** Accessible HTML nodes; SVG adds membership rails and optional, original call edges. */
-function createFeatureSceneView({graph, make, button, onFeature, onMapping, onRelations}) {
+function createFeatureSceneView({graph, make, button, onFeature, onMapping, onRelations, referenceFor=()=>null, referenceLabels={}}) {
   const $=id=>document.getElementById(id), projection=FeatureScene.create(graph);
   const roleNames={entry:'触发入口',implementation:'核心实现',support:'共享与支撑',test:'测试代码'};
   const decisionNames={proposed:'待审',accepted:'人工接受（自述）',rejected:'已拒绝'};
@@ -34,13 +34,14 @@ function createFeatureSceneView({graph, make, button, onFeature, onMapping, onRe
   function codeNode(a,shared=[]) {
     const m=a.mapping,label=projection.label(a),b=button('',()=>onMapping(m.id),'feature-mapping feature-code-node');
     b.dataset.mapping=m.id;b.dataset.role=m.role;b.dataset.current=String(a.current);b.dataset.decision=m.decision;
+    const reference=referenceFor(m.id);if(reference)b.dataset.referenceStatus=reference.status;
     b.classList.toggle('selected',selectedMapping===m.id);b.setAttribute('aria-pressed',String(selectedMapping===m.id));
     b.title=`${label.title}\n原符号：${label.original}\n${label.file}${label.line?':'+label.line:''}`;
     b.append(make('strong',label.title));
     if(mode==='graph')b.append(make('span',compact(m.rationale,80),'feature-node-summary'));
     // Long qualified symbols remain fully available in the inspector; file and line disambiguate identical names.
     b.append(make('small',label.file+(label.line?' : '+label.line:''),'feature-node-path'));
-    const meta=make('span',`${decisionNames[m.decision]} · ${a.current?'证据匹配':'已失效'}`,'feature-node-status');b.append(meta);
+    const meta=make('span',`${decisionNames[m.decision]} · ${reference?referenceLabels[reference.status]||reference.status:a.current?'证据匹配':'已失效'}`,'feature-node-status');b.append(meta);
     if(shared.length)b.append(make('small',`另有 ${shared.length} 个功能显式关联此代码`,'feature-shared'));
     if(mode==='list')b.append(make('p',compact(m.rationale,85),'feature-rationale-excerpt'));
     return b;
@@ -94,7 +95,9 @@ function createFeatureSceneView({graph, make, button, onFeature, onMapping, onRe
       columns.append(section);
     }
     box.append(stage);
-    box.append(make('p',`当前展示 ${scene.shown} / ${scene.total} 条映射。支撑与测试默认折叠；原始标注完整保留，可切换「全部关联」。失效或已拒绝节点仅作记录展示。`,'feature-scope-note'));
+    const checkedReferences=next.mappings.some(item=>item.mapping.featureId===f.id&&referenceFor(item.mapping.id));
+    box.append(make('p',`当前展示 ${scene.shown} / ${scene.total} 条映射。支撑与测试默认折叠；原始标注完整保留，可切换「全部关联」。${checkedReferences?'核对状态与原审阅决定分别保留。':'失效或已拒绝节点仅作记录展示。'}`,'feature-scope-note'));
+    if(calls&&checkedReferences&&next.mappings.some(item=>item.mapping.featureId===f.id&&!item.current))box.append(make('p','调用箭头沿用原标注的严格快照规则；引用核对不自动迁移原关系。请在关联说明中查看核对后的源码与关系依据。','feature-scope-note'));
     if(calls)renderCalls(box);
     draw();stage.scrollLeft=scrollLeft;stage.scrollTop=scrollTop;
     stage.onscroll=event=>{if(event.currentTarget===stage)remember();};

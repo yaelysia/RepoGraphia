@@ -1,5 +1,5 @@
 /** Editable semantic sidecar, explicit hierarchy and a read-only underlying code graph. */
-function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,make,button,onNode,onEvidence,onActivate,shell,workspaceBridge=null}) {
+function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,initialReferences=null,make,button,onNode,onEvidence,onActivate,shell,workspaceBridge=null}) {
   const $=id=>document.getElementById(id),panel=$('feature-view');
   const migrationButton=make('button','跨快照迁移');migrationButton.id='feature-migrate';panel.querySelector('.feature-actions').append(migrationButton);
   const readOnly=!!workspaceBridge?.readOnly;
@@ -11,15 +11,24 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
     'changed-compilerVersion':'编译器已变化','changed-config':'编译配置已变化','unversioned-analysis':'分析规则未标注',
     'changed-source':'源码哈希已变化','missing-file':'文件不在索引中','missing-node':'原实体不存在',
     'changed-node-anchor':'实体区间/类型已变化','missing-relation':'原关系不存在','changed-relation-anchor':'关系证据已变化',
-    'unrelated-relation':'证据不关联该实体','missing-relation-endpoint':'关系端点缺失'};
+    'unrelated-relation':'证据不关联该实体','missing-relation-endpoint':'关系端点缺失',
+    'missing-baseline-graph':'缺少原依据代码版本','baseline-basis-mismatch':'原依据版本不一致','original-reference-unverified':'原依据尚未核实',
+    'changed-analysis-inputs':'分析配置或解析输入已变化','analysis-inputs-unavailable':'缺少完整分析输入记录','changed-project-name':'项目身份已变化',
+    'missing-indexed-file':'原文件不在本次索引中','exact-anchor-recheck-required':'源码位置需要重新核对','missing-node-anchor':'原精确位置未匹配',
+    'ambiguous-node-anchor':'精确位置存在多个候选','changed-node-context':'所属上下文已变化','changed-static-neighborhood':'相关静态关系已变化',
+    'ambiguous-relation-anchor':'关系依据存在多个候选','changed-relation-evidence':'原关系依据已变化'};
   const warnings={'file-level-scope':'文件级映射不自动分配给所有子函数','type-declaration-anchor':'仅类型声明，不是实现函数','semantic-claim-not-program-proof':'功能语义是标注，不是程序证明','declaration-only':'仅声明证据',
     'evidence-candidate':'依赖候选关系','evidence-unresolved':'依赖未解析关系','evidence-external':'依赖外部边界',
     'type-only-evidence':'含仅类型关系','non-call-evidence':'含非调用关系','incomplete-value-origins':'来源集合不完整',
-    'truncated-value-origins':'来源追踪已截断'};
+    'truncated-value-origins':'来源追踪已截断','reference-check-not-semantic-review':'引用核对不代表功能含义或本轮代码已验收',
+    'neighborhood-candidate':'相关静态关系含候选目标','neighborhood-unresolved':'相关静态关系含未解析项',
+    'neighborhood-external':'相关静态关系含外部边界','type-only-neighborhood':'相关静态关系含仅类型依据','non-call-neighborhood':'相关静态关系含非调用关系'};
   let doc=initial?api.validate(initial):api.create(graph),report=api.assess(graph,doc);
   let active=false,scopeId=null,mode='features',selected=null,selectedMapping=null,detailTab='about',dirty=false,actor='',reason='';
-  let inspectorKey=null,referenceReport=null;
+  let inspectorKey=null,referenceReport=initialReferences;
   const referenceLabels={matched:'当前依据匹配','needs-review':'当前依据需要复核',unmatched:'原引用未匹配',unverified:'当前依据尚未核实',unmapped:'尚无代码关联'};
+  const referenceFor=id=>referenceReport?.mappings.find(item=>item.id===id);
+  const referenceContext=make('p',null,'meta');referenceContext.id='feature-reference-context';$('feature-summary').after(referenceContext);
   const scopes=new Map(),inspections=new Map(),scopeKey=()=>scopeId;
   const fields=(box,name,value='',multiline=false)=>{
     const label=make('label',name,'feature-field'),input=make(multiline?'textarea':'input');
@@ -58,8 +67,8 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
     const saved=inspections.get(inspectorKey);
     if(saved){for(const d of $('detail').querySelectorAll('.feature-fold')){const f=saved.folds.find(x=>x.name===d.className);if(f)d.open=f.open;}$('detail').scrollTop=saved.scroll;document.querySelector('.inspector').scrollTop=saved.outerScroll||0;}
   }
-  const sceneView=createFeatureSceneView({graph,make,button,onFeature:showFeature,onMapping:showMapping,onRelations:showRelations});
-  const workbench=createFeatureWorkbenchView({graph,api,make,button,shell,onSelect:showFeature,
+  const sceneView=createFeatureSceneView({graph,make,button,onFeature:showFeature,onMapping:showMapping,onRelations:showRelations,referenceFor,referenceLabels});
+  const workbench=createFeatureWorkbenchView({graph,api,make,button,shell,referenceFor,onSelect:showFeature,
     onEnter:(id,requested)=>navigate(id,requested),onCode:id=>navigate(id,'code'),
     onParent:()=>{if(scopeId){const exited=scopeId,parent=doc.features.find(f=>f.id===scopeId)?.parentId||null;navigate(parent,undefined,{returning:true,selectId:exited});}},
     onMode:next=>navigate(scopeId,next),onJump:id=>jump(id)});
@@ -72,18 +81,13 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
   }
   function refresh(){
     normalizeView();
-    const s=report.summary,referenceNote=referenceReport?`${referenceReport.mappings.filter(m=>m.status!=='matched').length} 条关联需复核`:'等待当前引用核对';
-    $('feature-summary').textContent=workspaceBridge?`${s.features} 个功能 · ${s.mappings} 条关联 · ${referenceNote} · 文档版本 ${doc.revision}${dirty?' · 未保存草稿':''}`:
+    const s=report.summary,referenceNote=referenceReport?`${referenceReport.mappings.filter(m=>m.status==='matched').length} 条匹配 · ${referenceReport.mappings.filter(m=>m.status!=='matched').length} 条需复核`:'等待当前引用核对';
+    $('feature-summary').textContent=workspaceBridge||referenceReport?`${s.features} 个功能 · ${s.mappings} 条关联 · ${referenceNote}${!workspaceBridge?' · 导出版本引用核对':''} · 文档版本 ${doc.revision}${dirty?' · 未保存草稿':''}`:
       `${s.features} 个功能提案 · ${s.mappings} 条映射 · ${s.stale} 条失效 · 文档版本 ${doc.revision}${dirty?' · 未保存草稿':''}`;
+    referenceContext.hidden=!!workspaceBridge||!initialReferences;
+    referenceContext.textContent=referenceReport?'核对结果固定于导出的代码与标注版本，离线不会检查后续文件变化。引用匹配不表示人工已接受，也不表示运行或测试通过。':
+      '标注已修改或重新导入，导出时的引用核对已撤销；当前按原标注的严格快照规则显示。需要新核对结果时，请从工作区重新导出。';
     workbench.render(report,{scopeId,mode,selected});renderList('',60);
-    if(referenceReport)for(const card of panel.querySelectorAll('.feature-card')){
-      const id=card.dataset.feature,refs=referenceReport.mappings.filter(item=>item.featureId===id),pending=refs.filter(item=>item.status!=='matched').length;
-      const stats=card.querySelector('.feature-node-stats');if(stats){
-        const children=api.hierarchy(doc.features).children(id).length;
-        stats.textContent=`${children?children+' 个子功能 · ':''}${refs.length} 条关联${pending?' · '+pending+' 条需复核':refs.length?' · 引用已核对':''}`;
-        stats.classList.toggle('feature-stale-text',pending>0);
-      }
-    }
     if(mode==='code'&&scopeId)sceneView.show(doc.features.find(f=>f.id===scopeId),report);else sceneView.leave();
   }
   function renderInspector(){
@@ -122,7 +126,7 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
       make('p','点选节点阅读说明，点击“进入功能”查看下一层。路径栏可以随时返回。'),
       make('p','功能连线表示明确标注的包含关系；关联代码另行查看。','meta'),
       make('p','当前内容是有限范围的功能提案，不是完整功能清单。','meta'));
-    if(report.globalIssues.length)box.append(make('div',workspaceBridge?'原标注依据与当前代码版本不同。各项引用另行核对，原内容和人工决定保留。':report.globalIssues.map(x=>issues[x]||x).join('；'),'callout'));
+    if(report.globalIssues.length)box.append(make('div',workspaceBridge||referenceReport?'原标注依据与显示的代码版本不同。各项引用另行核对，原内容和人工决定保留。':report.globalIssues.map(x=>issues[x]||x).join('；'),'callout'));
     if(workspaceBridge&&!readOnly)box.append(button('准备项目粗图任务',()=>workspaceBridge.requestAnalysis({kind:'overview'}),'detail-link'));
   }
   function showFeature(id){
@@ -145,7 +149,7 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
     const reference=referenceReport?.features.find(item=>item.id===id);
     if(reference)parts.about.append(make('p',referenceLabels[reference.status]||reference.status,'meta'));
     parts.evidence.append(make('p',`${children.length} 个直接子功能 · ${items.length} 条显式代码关联`));
-    if(items.some(m=>!m.current))parts.evidence.append(make('div',workspaceBridge?'部分原记录仍来自旧依据。当前引用核对与原记录分开显示；未匹配时不会猜测连线。':'含失效映射；旧锚点不会连接到当前代码。','callout'));
+    if(items.some(m=>!m.current))parts.evidence.append(make('div',workspaceBridge||referenceReport?'部分原记录仍来自旧依据。显示版本的引用核对与原记录分开显示；未匹配时不会猜测连线。':'含失效映射；旧锚点不会连接到当前代码。','callout'));
     parts.evidence.append(make('p','代码角色仅用于分组。共享代码不表示功能依赖，也不表示执行顺序。','meta'),button('查看全部关联代码',()=>navigate(id,'code'),'detail-link'));
     if(!readOnly)parts.review.append(button('编辑功能说明',()=>featureForm(f),'detail-link'));
     else parts.review.append(make('p','历史标注只读；审阅决定仍属于当时的版本。','meta'));
@@ -174,25 +178,26 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
   function renderMapping(id){
     const item=report.mappings.find(m=>m.mapping.id===id);if(!item)return;
     const m=item.mapping,label=sceneView.label(item),parts=inspector('mapping:'+id,label.title,'代码关联');sceneView.select(id);
-    const reference=referenceReport?.mappings.find(ref=>ref.id===id);
+    const reference=referenceFor(id),mappingWarnings=[...new Set([...item.warnings,...(reference?.warnings||[])])];
     parts.about.append(make('p',label.file+(label.line?' : '+label.line:''),'feature-inspector-path'),make('p',`${roles[m.role]} · ${labels[m.decision]} · ${reference?'原决定保留':item.current?'证据匹配':'已失效'}`),make('p',m.rationale));
     if(reference){
-      parts.about.append(make('p',referenceLabels[reference.status]||reference.status,'callout'),make('p',`原依据 ${(reference.originalBasis?.snapshot||'').slice(0,10)} · 当前核对 ${referenceReport.snapshot.slice(0,10)}。核对引用不表示本轮代码已验收。`,'meta'));
+      parts.about.append(make('p',referenceLabels[reference.status]||reference.status,'callout'),make('p',`原依据 ${(reference.originalBasis?.snapshot||'').slice(0,10)} · ${workspaceBridge?'当前':'导出版本'}核对 ${referenceReport.snapshot.slice(0,10)}。核对引用不表示本轮代码已验收。`,'meta'));
       if(reference.status==='matched'&&reference.current?.nodeId)parts.about.append(button('查看核对后的代码依据',()=>{const saved=snapshot();onNode(reference.current.nodeId);inspectorKey=null;$('detail').prepend(backButton(saved));},'detail-link'));
       if(reference.reasons.length)parts.evidence.append(make('p',reference.reasons.map(reason=>issues[reason]||reason).join('；'),'meta'));
     }
     if(!item.current&&!reference)parts.about.append(make('div','已失效：'+item.issues.map(x=>issues[x]||x).join('；'),'callout'));
-    if(item.warnings.some(x=>['evidence-candidate','evidence-unresolved','evidence-external'].includes(x)))parts.about.append(make('p',item.warnings.filter(x=>['evidence-candidate','evidence-unresolved','evidence-external'].includes(x)).map(x=>warnings[x]).join(' · '),'feature-evidence-status'));
-    if(item.current)parts.about.append(button('打开关联源码',()=>{const saved=snapshot();onNode(m.code.nodeId);inspectorKey=null;$('detail').prepend(backButton(saved));},'detail-link feature-source'));
-    else parts.about.append(make('p',workspaceBridge?'原记录仍绑定旧依据。当前核对单独展示，未匹配的引用不会按同名跳转或自动重新绑定。':'当前代码已不匹配：禁止按同名跳转或自动重新绑定。请导入旧代码图，使用跨快照迁移。'));
+    const uncertainty=['evidence-candidate','evidence-unresolved','evidence-external','neighborhood-candidate','neighborhood-unresolved','neighborhood-external'];
+    if(mappingWarnings.some(x=>uncertainty.includes(x)))parts.about.append(make('p',mappingWarnings.filter(x=>uncertainty.includes(x)).map(x=>warnings[x]).join(' · '),'feature-evidence-status'));
+    if(item.current&&!reference)parts.about.append(button('打开关联源码',()=>{const saved=snapshot();onNode(m.code.nodeId);inspectorKey=null;$('detail').prepend(backButton(saved));},'detail-link feature-source'));
+    if(!item.current)parts.about.append(make('p',workspaceBridge||referenceReport?'原记录仍绑定旧依据。显示版本的核对单独展示，未匹配的引用不会按同名跳转或自动重新绑定。':'当前代码已不匹配：禁止按同名跳转或自动重新绑定。请导入旧代码图，使用跨快照迁移。'));
     parts.about.append(button('返回功能说明',()=>showFeature(m.featureId),'detail-link'));
-    const caution=fold(parts.evidence,`证据限制 · ${item.warnings.length}`,'feature-warning-details');caution.append(make('p',item.warnings.map(x=>warnings[x]||x).join('；')));
+    const caution=fold(parts.evidence,`证据限制 · ${mappingWarnings.length}`,'feature-warning-details');caution.append(make('p',mappingWarnings.map(x=>warnings[x]||x).join('；')));
     const identity=fold(parts.evidence,'原始符号与定位','feature-identity');identity.append(make('p',m.code.name,'meta'),make('p',m.code.nodeId,'meta'),make('p',`${m.code.file} · UTF-16 [${m.code.start}, ${m.code.end})`,'meta'),make('p','SHA-256 '+m.code.fileHash,'meta'));
     if(m.basis)identity.append(make('p','证据快照：'+m.basis.snapshot,'meta'));
-    if(item.current){
-      const evidence=fold(parts.evidence,`原始关系证据 · ${m.evidence.length}`,'feature-evidence-details');
-      for(const ref of m.evidence)evidence.append(button(`${ref.kind} · ${ref.status} · 查看原关系`,()=>openEvidence(graph.relations.find(e=>e.id===ref.relationId)),'detail-link feature-evidence'));
-      if(!m.evidence.length)evidence.append(make('p','仅记录声明锚点，没有附加关系证据。'));
+    if(reference?.status==='matched'||!reference&&item.current){
+      const ids=reference?reference.current.relationIds:m.evidence.map(ref=>ref.relationId),evidence=fold(parts.evidence,`${reference?'核对后的':'原始'}关系证据 · ${ids.length}`,'feature-evidence-details');
+      for(const id of ids){const edge=graph.relations.find(e=>e.id===id);if(edge)evidence.append(button(`${edge.kind} · ${edge.status} · 查看原关系`,()=>openEvidence(edge),'detail-link feature-evidence'));}
+      if(!ids.length)evidence.append(make('p','仅记录声明锚点，没有附加关系证据。'));
     }
     if(!readOnly)parts.review.append(button('修正关联理由、角色与证据',()=>mappingForm(m),'detail-link feature-correct'));
     const review=fold(parts.review,'审阅与修改决定','feature-review-details');context(review);
@@ -240,7 +245,8 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
   }
   function freshId(prefix){let n=doc.revision+1;while([...doc.features,...doc.mappings].some(x=>x.id===`${prefix}-${n}`))n++;return `${prefix}-${n}`;}
   function decorateNode(box,n){
-    const items=report.mappings.filter(m=>m.current&&m.mapping.decision!=='rejected'&&m.mapping.code.nodeId===n.id);
+    const items=report.mappings.filter(m=>{const ref=referenceFor(m.mapping.id);return m.mapping.decision!=='rejected'&&
+      (ref?ref.status==='matched'&&ref.current.nodeId===n.id:m.current&&m.mapping.code.nodeId===n.id);});
     const hierarchy=api.hierarchy(doc.features),path=id=>hierarchy.path(id).map(f=>f.title).join(' / ');
     box.append(make('h4',`关联功能 · ${items.length}（仅显式映射）`));
     for(const item of items)box.append(button(path(item.mapping.featureId),()=>{onActivate();showMapping(item.mapping.id);},'detail-link feature-reverse'));
@@ -268,7 +274,7 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
       if(file.size>5*1024*1024)throw new Error('标注文件超过 5 MiB');const next=api.validate(JSON.parse(await file.text()));
       if(doc!==previous)throw new Error('导入期间发生编辑，请重试，当前草稿未覆盖。');
       if(dirty&&!confirm('导入将替换未保存的内存草稿，继续？'))return;
-      const checked=api.assess(graph,next);doc=next;report=checked;dirty=!!workspaceBridge;migrationView.close();resetView();
+      const checked=api.assess(graph,next);doc=next;report=checked;referenceReport=null;dirty=!!workspaceBridge;migrationView.close();resetView();
       if(workspaceBridge){workspaceBridge.changed(doc);notice('标注已导入，正在保存到本地工作区。失效依据不会自动重绑定。');}
       else notice(checked.summary.stale?'已导入，但部分映射失效；没有自动重绑定。':'标注已载入内存，原文件未修改。');
     }catch(error){notice('导入失败：'+error.message);}finally{event.target.value='';}
@@ -276,7 +282,7 @@ function createFeatureMapView({graph,api,migrationApi=FeatureMigration,initial,m
   const migrationView=createFeatureMigrationView({graph,api:migrationApi,getDocument:()=>doc,make,button,fields,context,notice,
     onInspect:()=>{saveInspector();inspectorKey=null;workbench.showDetails();},
     editContext:()=>({expectedRevision:doc.revision,actor,actorKind:'manual',reason,at:new Date().toISOString()}),
-    onApplied:next=>{if(readOnly)return;doc=next;report=api.assess(graph,doc);dirty=true;resetView();workspaceBridge?.changed(doc);}});
+    onApplied:next=>{if(readOnly)return;doc=next;report=api.assess(graph,doc);referenceReport=null;dirty=true;resetView();workspaceBridge?.changed(doc);}});
   workspaceBridge?.attach({document:()=>doc,saved:()=>{dirty=false;refresh();notice('已保存到本地工作区。');},failed:message=>{dirty=true;refresh();notice('保存失败：'+message+'。当前草稿仍保留，可导出 JSON。');},
     references:value=>{
       if(referenceReport?.snapshot===value.snapshot&&referenceReport?.featureDigest===value.featureDigest)return;
