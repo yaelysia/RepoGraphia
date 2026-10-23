@@ -1,5 +1,21 @@
 # RepoGraphia 当前检查点
 
+## CP46：功能树构造与阅读优先，执行适配后置
+
+2026-10-23，用户明确借鉴 Archify 的 UI 布局、功能树展开和内容组织，同时保留 RepoGraphia 的程序代码图与开发审阅。远端 master 仍为 `0ef69d3dc9256dbfeea7a8bd625004a84c9525b5`；准备分支 `docs/m4-preparation`／草案 [PR #16](https://github.com/yaelysia/RepoGraphia/pull/16) 仅调整文档。
+
+当前 M4 改为：同数据阅读原型与复用选择 → 功能树阅读接入 → 构造与审阅衔接。原工作台启动 Agent 方案后置，现有外部 Agent 流程继续使用。展开已有子功能与继续分析分开，图面投影不改写依据、层级或人工决定。
+
+先读 [CP46](checkpoints/CP46-function-tree-reading-plan.md) 和 [功能树构造与阅读方案](function-tree-reading-plan.md)。本轮尚未实现新 UI、运行 Archify 或完成同数据交互验收；历史 CP45 的 M4 指原执行适配提案，后续按 CP46 的新顺序接手。
+
+## CP45：M1～M3 用户验收通过，下一阶段准备
+
+2026-10-23，用户确认前面功能测试正常。导出修复 PR [#15](https://github.com/yaelysia/RepoGraphia/pull/15) 已合入 master `0ef69d3dc9256dbfeea7a8bd625004a84c9525b5`，合并后的 [Verify #63](https://github.com/yaelysia/RepoGraphia/actions/runs/39914395704) 已重新核对为全部通过。CP43/44 保留原历史，此处补充最终状态；本次未重复运行用户试跑数据。
+
+计划分支 `docs/m4-preparation`，仅文档。建议下一阶段做工作台内的功能分析：显式启动本机 Codex、保存真实运行状态、自动收回待审提案，并接到按功能阅读变化/理由/证据/未知的现有审阅流程。分为适配与运行基础、工作台闭环、跨平台及真实使用验收；复用原任务/提案协议，不自动应用或接受。
+
+先读 [CP45](checkpoints/CP45-m4-preparation.md) 和 [M4 提案](analysis-execution-plan.md)。本轮是准备工作，M4 尚未实现；真实 CLI 兼容、权限和取消行为待验证。接手先核对远端 master 与计划 PR，避免重做 M1～M3。
+
 ## CP44：导出浏览器回归等待确切选中版本
 
 2026-10-23，`fix/offline-reference-export`，PR [#15](https://github.com/yaelysia/RepoGraphia/pull/15)。CP43 实现 HEAD `a262c304fb845b235c53e5ea61b27b694eceb3a3` 的 [Verify #61](https://github.com/yaelysia/RepoGraphia/actions/runs/39911847913)：Windows 与固定样本全部通过；Linux 518 单元及此前浏览器 gate 通过，新导出脚本在第一条检查前读到了旧 iframe，导致新旧快照应不同的断言失败。
