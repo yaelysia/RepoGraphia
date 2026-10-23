@@ -1,5 +1,13 @@
 # RepoGraphia 当前检查点
 
+## CP44：导出浏览器回归等待确切选中版本
+
+2026-10-23，`fix/offline-reference-export`，PR [#15](https://github.com/yaelysia/RepoGraphia/pull/15)。CP43 实现 HEAD `a262c304fb845b235c53e5ea61b27b694eceb3a3` 的 [Verify #61](https://github.com/yaelysia/RepoGraphia/actions/runs/39911847913)：Windows 与固定样本全部通过；Linux 518 单元及此前浏览器 gate 通过，新导出脚本在第一条检查前读到了旧 iframe，导致新旧快照应不同的断言失败。
+
+已把测试同步改为固定本次更新后的代码 snapshot 与标注 digest，并等待 iframe 中的实际 graph snapshot 精确匹配，再继续读取和导出。保留原版本变化断言，没有固定延时或产品行为改动。本地新导出浏览器 **14 组通过**，浏览器异常与外部请求均为 **0**。服务退出检查仍严格要求 0，并补充失败诊断；一次未记录退出原因的失败及后续复核如实记于 [CP44](checkpoints/CP44-workspace-export-ci-synchronization.md)。
+
+本提交仅修改浏览器同步、诊断和检查点。新 HEAD 的 Windows/Linux/sample CI 及最终合并状态必须在 PR #15 核对；不能把 #61 的部分成功当成最终门禁通过。复测方式仍为重开原工作区，选择同一对版本后重新导出，无需重跑 Agent。
+
 ## CP43：工作区离线导出保留逐条引用核对
 
 2026-10-23，`fix/offline-reference-export`，基线 master `fac543b52dd46a68e624387f70ebd19acdd43c29`。用户在固定样本上完成 M1→M2→M3 后报告：工作区 10 条依据匹配，离线 HTML 却全部失效。已复现并修复导出缺失引用核对上下文的问题；冻结结果绑定所选代码与标注版本，保留原依据、人工决定、候选限制和严格 assess／迁移规则。代码节点、功能分页和详情统一展示；编辑、成功导入或迁移后撤销旧核对。

@@ -128,12 +128,22 @@ with tempfile.TemporaryDirectory(prefix='repographia-export-browser-') as tempor
             def refresh_selected():
                 page.locator('#refresh-workspace').click()
                 expect(page.locator('#open-latest')).to_be_visible(timeout=30000)
+                state = api('/api/state')
+                selected_snapshot = state['latestSnapshot']
                 page.locator('#open-latest').click()
+                # The old frame already satisfies the generic ready conditions while
+                # /api/report is in flight. Wait for the requested graph identity first.
+                page.wait_for_function('''snapshot => {
+                    const data = document.querySelector('#workspace-report')?.contentDocument?.getElementById('graph-data');
+                    try { return !!data && JSON.parse(data.textContent).project.snapshot === snapshot; }
+                    catch { return false; }
+                }''', arg=selected_snapshot, timeout=30000)
                 expect(page.locator('#save-status')).to_contain_text('标注已载入', timeout=30000)
                 expect(frame.locator('#viewer-startup')).to_have_count(0)
                 graph = json.loads(frame.locator('#graph-data').text_content())
-                work = api('/api/feature-work?'+urlencode({'snapshot':graph['project']['snapshot'],
-                                                        'featureDigest':api('/api/state')['feature']['digest']}))
+                assert graph['project']['snapshot'] == selected_snapshot
+                work = api('/api/feature-work?'+urlencode({'snapshot':selected_snapshot,
+                                                        'featureDigest':state['feature']['digest']}))
                 return graph, work['references']
 
             def export_report(name):
@@ -184,7 +194,7 @@ with tempfile.TemporaryDirectory(prefix='repographia-export-browser-') as tempor
             assert api('/api/state')['feature']['digest'] == matched_refs['featureDigest']
             page.close()
             stop(process)
-            assert process.poll() == 0
+            assert process.poll() == 0, f'Workspace fixture exited {process.poll()}: {process.stderr.read()}'
             checked('workspace service is stopped before standalone file browsing')
 
             offline = context.new_page()
