@@ -106,7 +106,8 @@ export async function startWorkspaceServer(workspace: ContinuousWorkspace, optio
         const featureDigest = url.searchParams.has('featureDigest') ? selectedDigest === 'none' ? null : selectedDigest || null : workspace.featureDigest;
         const features = workspace.getFeatures(featureDigest);
         if (url.pathname === '/api/export') {
-          send(response, renderHtml(graph, features), 'text/html; charset=utf-8', { 'Content-Disposition': `attachment; filename="repographia-${snapshot.slice(0, 12)}.html"` }); return;
+          const featureReferences = featureDigest ? workspace.featureReferences(snapshot, featureDigest) : undefined;
+          send(response, renderHtml(graph, features, { featureReferences }), 'text/html; charset=utf-8', { 'Content-Disposition': `attachment; filename="repographia-${snapshot.slice(0, 12)}.html"` }); return;
         }
         const ticket = randomBytes(24).toString('hex');
         for (const [key, value] of tickets) if (value.expiresAt < Date.now()) tickets.delete(key);

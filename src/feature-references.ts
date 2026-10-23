@@ -43,6 +43,45 @@ const require = (condition: unknown, message: string): void => {
   if (!condition) throw new Error('Feature references: ' + message);
 };
 
+/** Validate an exported result's identity and destinations, without migrating its original anchors. */
+export function validateFeatureReferenceReport(graph: CodeGraph, input: FeatureMap, report: FeatureReferenceReport): void {
+  const map = api.validate(input);
+  require(report.referenceVersion === 1 && report.snapshot === graph.project.snapshot &&
+    report.featureDigest === hash(JSON.stringify(map)) && report.revision === map.revision,
+  'report does not match the pinned code and annotation version');
+  require(Array.isArray(report.mappings) && report.mappings.length === map.mappings.length &&
+    new Set(report.mappings.map(row => row.id)).size === map.mappings.length, 'mapping membership mismatch');
+  const mappings = new Map(map.mappings.map(mapping => [mapping.id, mapping])), anchors = api.anchors(graph);
+  for (const row of report.mappings) {
+    const mapping = mappings.get(row.id);
+    require(mapping && row.featureId === mapping.featureId && row.decision === mapping.decision &&
+      canonical(row.originalBasis) === canonical(mapping.basis ?? map.basis), 'original mapping identity mismatch');
+    require(['matched', 'needs-review', 'unmatched', 'unverified'].includes(row.status) &&
+      [row.reasons, row.warnings].every(values => Array.isArray(values) && values.every(value => typeof value === 'string')),
+    'invalid reference status or explanation');
+    if (row.status !== 'matched') {
+      require(row.current === undefined, 'unmatched reference must not provide a current destination');
+      continue;
+    }
+    require(row.current && Array.isArray(row.current.relationIds) && row.reasons.length === 0,
+      'matched reference requires a checked current destination');
+    const captured = anchors(row.current!.nodeId, row.current!.relationIds);
+    const { nodeId: _currentId, ...currentCode } = captured.code, { nodeId: _originalId, ...originalCode } = mapping!.code;
+    require(canonical(currentCode) === canonical(originalCode), 'current destination does not match the recorded exact anchor');
+    const relationFacts = (items: typeof captured.evidence) => items.map(({ relationId: _id, from: _from, targets: _targets, ...facts }) => canonical(facts)).sort();
+    require(canonical(relationFacts(captured.evidence)) === canonical(relationFacts(mapping!.evidence)),
+      'current relations do not match the recorded evidence');
+  }
+  require(Array.isArray(report.features) && report.features.length === map.features.length &&
+    new Set(report.features.map(feature => feature.id)).size === map.features.length, 'feature membership mismatch');
+  for (const feature of report.features) {
+    const rows = report.mappings.filter(row => row.featureId === feature.id), statuses = unique(rows.map(row => row.status));
+    const status = !statuses.length ? 'unmapped' : statuses.length === 1 ? statuses[0] : 'needs-review';
+    require(map.features.some(item => item.id === feature.id) && feature.status === status &&
+      canonical(feature.mappingIds) === canonical(rows.map(row => row.id)), 'feature reference membership or status mismatch');
+  }
+}
+
 /** Complete static records with temporary structural keys, not persistent cross-snapshot IDs. */
 function index(graph: CodeGraph) {
   api.assess(graph, api.create(graph)); // Retain the graph/schema/unique-ID checks of the existing API.

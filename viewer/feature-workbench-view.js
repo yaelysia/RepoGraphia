@@ -1,5 +1,5 @@
 /** Offline function navigation. Only explicit parentId links become containment lines. */
-function createFeatureWorkbenchView({graph, api, make, button, onSelect, onEnter, onCode, onParent, onMode, onJump, shell}) {
+function createFeatureWorkbenchView({graph, api, make, button, onSelect, onEnter, onCode, onParent, onMode, onJump, shell, referenceFor=()=>null}) {
   const $=id=>document.getElementById(id), panel=$('feature-view'), host=$('feature-cards');
   const svg=(tag,attrs={})=>{const n=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const [k,v]of Object.entries(attrs))n.setAttribute(k,String(v));return n;};
   const motion=matchMedia('(prefers-reduced-motion: reduce)'), cameras=new Map(), pages=new Map();
@@ -103,8 +103,10 @@ function createFeatureWorkbenchView({graph, api, make, button, onSelect, onEnter
     const outer=make('div',null,'feature-node-wrap');outer.dataset.feature=f.id;
     const b=button('',()=>onSelect(f.id),'feature-card'+(selected===f.id?' selected':''));b.dataset.feature=f.id;b.setAttribute('aria-pressed',String(selected===f.id));b.setAttribute('aria-label',`查看${f.title}的说明`);b.title=f.title;
     const children=hierarchy.children(f.id),items=report.mappings.filter(m=>m.mapping.featureId===f.id),stale=items.filter(m=>!m.current).length;
+    const references=items.map(item=>referenceFor(item.mapping.id)),checked=references.some(Boolean),pending=checked?references.filter(ref=>ref?.status!=='matched').length:stale;
     b.append(make('span',children.length?'包含子功能':'功能','feature-node-type'),make('strong',f.title),make('span',compact(caption(f),88),'feature-node-summary'));
-    const stats=make('span',`${children.length?children.length+' 个子功能 · ':''}${items.length} 条关联${stale?' · '+stale+' 条失效':''}`,'feature-node-stats');if(stale)stats.classList.add('feature-stale-text');b.append(stats);
+    const state=checked?(pending?' · '+pending+' 条需复核':' · 引用已核对'):(stale?' · '+stale+' 条失效':'');
+    const stats=make('span',`${children.length?children.length+' 个子功能 · ':''}${items.length} 条关联${state}`,'feature-node-stats');if(pending)stats.classList.add('feature-stale-text');b.append(stats);
     const actions=make('div',null,'feature-node-actions'),enter=button(children.length?'进入功能 →':'查看实现 →',()=>onEnter(f.id),'feature-enter'),code=button('代码',()=>onCode(f.id),'feature-open-code');enter.dataset.feature=f.id;code.dataset.feature=f.id;code.setAttribute('aria-label',`查看${f.title}的关联代码`);actions.append(enter,code);outer.append(b,actions);return outer;
   }
   function drawHierarchy(){

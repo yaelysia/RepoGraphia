@@ -364,6 +364,13 @@ export class ContinuousWorkspace {
     for (const id of ids) if (this.manifest.snapshots.some(version => version.id === id)) history.set(id, this.readSnapshot(id));
     return history;
   }
+  private referencesFor(current: WorkspaceAnalysis, map: FeatureMap) {
+    return checkFeatureReferences(current, map, this.referenceHistory(map));
+  }
+  /** A fixed code/annotation pair, independent of task and proposal storage. */
+  featureReferences(snapshot: string, featureDigest: string) {
+    return this.featureOperation(() => this.referencesFor(this.readSnapshot(snapshot), this.getFeatures(featureDigest)!));
+  }
   private explorationRecords(map: FeatureMap): ExplorationRecord[] {
     const records: ExplorationRecord[] = [], bundles = new Map<string, FeatureTaskBundle>();
     for (const metadata of this.featureWorkState().proposals) {
@@ -380,7 +387,7 @@ export class ContinuousWorkspace {
       const selected = snapshot ?? this.manifest.latestSnapshot, digest = featureDigest ?? this.manifest.featureHead;
       if (!selected || !digest) throw new WorkspaceError('Code and annotations are not ready; refresh the workspace first', 409);
       const current = this.readSnapshot(selected), map = this.getFeatures(digest)!;
-      const references = checkFeatureReferences(current, map, this.referenceHistory(map));
+      const references = this.referencesFor(current, map);
       const exploration = featureExploration(current.graph, this.explorationRecords(map));
       const work = this.featureWorkState();
       return { snapshot: selected, featureDigest: digest, features: structuredClone(map.features),

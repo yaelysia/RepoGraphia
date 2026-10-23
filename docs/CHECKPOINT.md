@@ -1,5 +1,21 @@
 # RepoGraphia 当前检查点
 
+## CP44：导出浏览器回归等待确切选中版本
+
+2026-10-23，`fix/offline-reference-export`，PR [#15](https://github.com/yaelysia/RepoGraphia/pull/15)。CP43 实现 HEAD `a262c304fb845b235c53e5ea61b27b694eceb3a3` 的 [Verify #61](https://github.com/yaelysia/RepoGraphia/actions/runs/39911847913)：Windows 与固定样本全部通过；Linux 518 单元及此前浏览器 gate 通过，新导出脚本在第一条检查前读到了旧 iframe，导致新旧快照应不同的断言失败。
+
+已把测试同步改为固定本次更新后的代码 snapshot 与标注 digest，并等待 iframe 中的实际 graph snapshot 精确匹配，再继续读取和导出。保留原版本变化断言，没有固定延时或产品行为改动。本地新导出浏览器 **14 组通过**，浏览器异常与外部请求均为 **0**。服务退出检查仍严格要求 0，并补充失败诊断；一次未记录退出原因的失败及后续复核如实记于 [CP44](checkpoints/CP44-workspace-export-ci-synchronization.md)。
+
+本提交仅修改浏览器同步、诊断和检查点。新 HEAD 的 Windows/Linux/sample CI 及最终合并状态必须在 PR #15 核对；不能把 #61 的部分成功当成最终门禁通过。复测方式仍为重开原工作区，选择同一对版本后重新导出，无需重跑 Agent。
+
+## CP43：工作区离线导出保留逐条引用核对
+
+2026-10-23，`fix/offline-reference-export`，基线 master `fac543b52dd46a68e624387f70ebd19acdd43c29`。用户在固定样本上完成 M1→M2→M3 后报告：工作区 10 条依据匹配，离线 HTML 却全部失效。已复现并修复导出缺失引用核对上下文的问题；冻结结果绑定所选代码与标注版本，保留原依据、人工决定、候选限制和严格 assess／迁移规则。代码节点、功能分页和详情统一展示；编辑、成功导入或迁移后撤销旧核对。
+
+Linux / Node 24.19.0 / 锁定 TypeScript 5.9.3：完整 **518 pass / 0 fail / 0 skip**；新增导出浏览器 **14 组**、原 M2 浏览器 **14 组**通过，均无浏览器异常或外部请求。导出回归使用真实 loopback 下载，并在服务关闭后通过实际 `file://` 打开；红测已确认旧导出缺少核对结果。Windows/Linux/sample 的最终 CI、PR 和合并状态须按本轮远端 HEAD 核对，不能用本地结果代替。
+
+先读 [CP43](checkpoints/CP43-workspace-reference-export.md)。升级构建后重开原工作区，选择相同代码和标注版本，重新“导出报告”即可复测，无需重跑 Agent。普通 `features render` 仍采用严格快照规则；旧 HTML 不会自动补齐工作区上下文。
+
 ## CP42：M3 CI 动效定位修复与本地试用教程
 
 2026-10-23，`feat/development-review`，PR #14。实现 HEAD `fb2d430bfff80e58243709e7eb4a2aa6047c8f72` 的 Verify #58：Windows 全部通过（508 pass / 3 项既有符号链接权限 skip），sample 通过；Linux 511 单元通过，但 M2 浏览器脚本把短暂的不可交互动效副本与当前节点一起匹配，strict-mode 失败，之后的 M3 浏览器 gate 未运行。
