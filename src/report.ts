@@ -4,6 +4,7 @@ import type { CodeGraph } from './model.js';
 import { createProjectMapApi } from './project-map.js';
 import { createFeatureMigrationApi } from './feature-migration.js';
 import { createFeatureSceneApi } from './feature-scene.js';
+import { createFeatureTreeApi } from './feature-tree.js';
 import { createFeatureMapApi } from './feature-map.js';
 import { validateFeatureReferenceReport } from './feature-references.js';
 import type { FeatureReferenceReport } from './feature-references.js';
@@ -42,7 +43,7 @@ export function renderHtml(graph: CodeGraph, features?: unknown, options: Worksp
   const bridgeUi = options.workspace ? fs.readFileSync(new URL('../viewer/workspace-bridge.js', import.meta.url), 'utf8') : '';
   // HTML parsing normalizes CRLF and lone CR before CSP hashes inline script text.
   // Hash and embed the same normalized runtime, including factory toString() output.
-  const script = `(() => { const FeatureMap = (${createFeatureMapApi.toString()})();\nconst FeatureMigration = (${createFeatureMigrationApi.toString()})(FeatureMap);\n${migrationUi}\nconst FeatureScene = (${createFeatureSceneApi.toString()})();\n${sceneUi}\n${workbenchUi}\n${featureUi}\nconst ProjectMap = (${createProjectMapApi.toString()})();\n${ui}\n${shellUi}\n${bridgeUi}\n${app}\ndocument.getElementById('viewer-startup')?.remove();\n})();`.replace(/\r\n?/g, '\n');
+  const script = `(() => { const FeatureMap = (${createFeatureMapApi.toString()})();\nconst FeatureMigration = (${createFeatureMigrationApi.toString()})(FeatureMap);\n${migrationUi}\nconst FeatureScene = (${createFeatureSceneApi.toString()})();\nconst FeatureTree = (${createFeatureTreeApi.toString()})();\n${sceneUi}\n${workbenchUi}\n${featureUi}\nconst ProjectMap = (${createProjectMapApi.toString()})();\n${ui}\n${shellUi}\n${bridgeUi}\n${app}\ndocument.getElementById('viewer-startup')?.remove();\n})();`.replace(/\r\n?/g, '\n');
   const template = fs.readFileSync(new URL('../viewer/body.html', import.meta.url), 'utf8');
   const digest = createHash('sha256').update(script).digest('base64');
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

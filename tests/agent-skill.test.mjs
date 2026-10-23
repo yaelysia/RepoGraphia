@@ -12,11 +12,11 @@ test('Skill has bounded routing metadata and complete relative references',()=>{
  assert.match(lf,header);assert.match(lf.replace(/\n/g,'\r\n'),header);
  assert.ok(!header.test(lf.replace('name: repographia-function-map','name: another-skill')));
  assert.ok(!header.test(lf.replace('description: ', 'wrong-field: ')));
- assert.match(skill,/version: "1.3"/);assert.ok(skill.split('\n').length<500);
+ assert.match(skill,/version: "1.4"/);assert.ok(skill.split('\n').length<500);
  for(const [,ref] of skill.matchAll(/\]\((references\/[^)]+)\)/g)) assert.ok(fs.existsSync(path.join(root,ref)));
  for(const required of ['claim table','counterexample','TRIAL.md','not independent','nextOffset','agent submit','parentId','FeatureMap schema 3',
    'agent task overview','agent task check','agent task submit','exploredFiles','retractions','applied: false',
-   'separate, initially absent submission directory','must remain absent until submission'])
+   'separate, initially absent submission directory','must remain absent until submission','references/construction.md','layer question'])
    assert.ok(skill.includes(required),required);
 });
 test('Skill separates task revisions from append proposals and explains human application and retained history',()=>{

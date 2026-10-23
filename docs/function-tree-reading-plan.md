@@ -1,5 +1,7 @@
 # M4：功能树的构造与阅读
 
+实施进展（2026-10-23）：M4.1 同数据几何与交互比较已完成，见 [CP47](checkpoints/CP47-function-tree-prototype.md) 和 [布局复用记录](archify-tree-reuse.md)。正式树导航、Skill 1.4 与提案分组的当前行为见 [功能地图](feature-map-visual.md) 和最新检查点；以下保留本方案确定时的范围与验收条件。
+
 2026-10-23。用户明确希望借鉴 Archify 的布局、功能树展开与内容组织，完善 RepoGraphia 的阅读和构造，同时保留底层代码图以及开发审阅。**本文是下一阶段的实施方案，尚未接入新的布局或交互。** 原工作台启动 Agent 的方案保留在 [执行适配提案](analysis-execution-plan.md)，安排在本阶段之后。
 
 ## 1. 目标与分工

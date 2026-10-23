@@ -6,7 +6,7 @@
 
 需要 Node 22+、已构建的 RepoGraphia，以及一个带完整源码的 graph.json。先使用既有 analyze 在目标外部的新目录生成快照；已有报告可直接用，不应每查询一次重新分析。带源码报告与提案含私有代码，保存/分享按源码处理。
 
-Skill 位于 `skills/repographia-function-map/`，当前为 **1.3**。可复制整个目录到所用 Agent 支持的 Skill 目录；也可以在任务中明确要求读取这个 SKILL.md 并遵循，不依赖自动触发。复制后不能只拷主文件而漏掉 references。这里没有自动修改用户全局配置，也没有验证各宿主的自动触发率。
+Skill 位于 `skills/repographia-function-map/`，当前为 **1.4**。可复制整个目录到所用 Agent 支持的 Skill 目录；也可以在任务中明确要求读取这个 SKILL.md 并遵循，不依赖自动触发。复制后不能只拷主文件而漏掉 references。这里没有自动修改用户全局配置，也没有验证各宿主的自动触发率。
 
 持续工作区导出的任务包使用独立的 `agent task overview/search/inspect/relation/check/submit` 通道及 `revisionProtocol: 1`。它允许任务授权范围内的功能修订、关联替换和有理由的撤销；提交只生成 revision/review/receipt，供人导入和整批应用。冻结版本、引用核对、探索声明和迟到结果规则见 [功能建设](feature-tasks.md) 与 Skill 的 `references/task-revisions.md`。下文保留原固定 graph/features 的追加流程，不能把两种 header 或输出文件混用。
 
@@ -14,7 +14,7 @@ Skill 位于 `skills/repographia-function-map/`，当前为 **1.3**。可复制�
 
 > 读取 /path/to/RepoGraphia/skills/repographia-function-map/SKILL.md。工具入口为 /path/to/RepoGraphia/dist/cli.js，分析图为 /path/to/reports/graph.json，现有标注为 /path/to/features.json。先分析我指定的功能区域，输出可审阅提案，不覆盖原标注。探索输出保存到一个新目录；保留查询记录、自评与接手检查点。
 
-先 `node dist/cli.js agent --help`。原追加 CLI 支持 overview/search/inspect/relation/check/submit。每次操作都使用同一份图和同一 --features，具体格式见 Skill 的 references/protocol.md。Skill 保留 1.2 加入的显式父子功能与短说明，并在 1.3 按输入任务包选择新修订通道；程序与工作流检查不等于独立模型质量评测。
+先 `node dist/cli.js agent --help`。原追加 CLI 支持 overview/search/inspect/relation/check/submit。每次操作都使用同一份图和同一 --features，具体格式见 Skill 的 references/protocol.md。Skill 保留 1.2 加入的显式父子功能与短说明，以及 1.3 按输入任务包选择修订通道的规则。1.4 增加本层问题、同层粒度和拆分理由的正反例，见 `references/construction.md`；既有协议、范围和引文核验不变。程序与工作流检查不等于独立模型质量评测。
 
 ## 能力与约束
 

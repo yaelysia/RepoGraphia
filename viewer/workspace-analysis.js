@@ -46,7 +46,7 @@ function createFeatureWorkView({api, context, guardCurrent, onApplied, navigate,
   let data = null, dataKey = '', request = 0, inFlight = null, lastLoaded = 0, visible = false, busy = false;
   let category = 'review', selected = {kind:'home'}, detailRequest = 0, proposalView = null, listLimit = 60;
   let preparation = {kind:'overview',featureId:'',goal:''}, decisionDraft = {actor:'本地审阅者',reason:''};
-  const preparationDrafts = new Map(),decisionDrafts = new Map();
+  const preparationDrafts = new Map(),decisionDrafts = new Map(),proposalPositions = new Map();
   let preparationDirty = false;
   let signature = '', scopeSignature = '', statusOwned = false;
 
@@ -259,15 +259,18 @@ function createFeatureWorkView({api, context, guardCurrent, onApplied, navigate,
     else if (kind === 'task') renderTask(data.tasks.find(item => item.id === id));
     else if (kind === 'proposal') void loadProposal(id);
   }
+  function proposalFeature(id,side='after') {
+    const change = proposalView?.review.changes.find(item=>item.kind === 'feature' && item.id === id);
+    if (change) return change[side] || null;
+    return proposalView?.baselineFeatures?.find(item=>item.id === id) || null;
+  }
   function sideContent(box,value,side) {
     if (value == null) {box.append(make('p','无','feature-work-meta'));return;}
     if (typeof value !== 'object') {box.append(make('p',String(value)));return;}
     if (value.title) box.append(make('p',value.title));
     if (value.summary) box.append(make('p',value.summary));
     if (value.title) {
-      const changedParent = proposalView?.review.changes.find(change=>change.kind === 'feature' && change[side]?.id === value.parentId)?.[side];
-      const savedParent = data?.references.featureDigest === taskDigest(proposalView?.task) ? feature(value.parentId) : null;
-      box.append(make('p','所属功能：'+(value.parentId ? changedParent?.title || savedParent?.title || value.parentId : '顶层功能'),'feature-work-meta'));
+      box.append(make('p','所属功能：'+(value.parentId ? proposalFeature(value.parentId,side)?.title || value.parentId : '顶层功能'),'feature-work-meta'));
     }
     if (value.rationale) box.append(make('p',value.rationale));
     if (value.code) box.append(make('p',`${value.code.name || value.code.nodeId} · ${value.code.file}`,'feature-work-meta'));
@@ -290,31 +293,86 @@ function createFeatureWorkView({api, context, guardCurrent, onApplied, navigate,
     for(const [key,label] of [['addedFeatures','新增功能'],['revisedFeatures','修改功能'],['addedMappings','新增关联'],['replacedMappings','替换关联'],['retractions','撤销关联'],['resetMappings','关联回到待审']])if(review.summary[key])summary.append(badge(`${review.summary[key]} 项${label}`,key === 'resetMappings' ? 'needs-review' : undefined));
     summary.append(badge(`${review.exploredFiles?.length || 0} 个文件的探索声明`));detail.append(summary);
     if(review.summary.resetMappings)detail.append(make('p',`功能说明变化后，${review.summary.resetMappings} 条原已接受的关联将回到待审。原接受决定与依据仍保留在历史中；下方逐项列出这些状态变化。`,'feature-work-callout'));
-    if(changes.length){
-      const label = make('label','逐项查看本批变化','feature-work-field'),select = make('select');select.id = 'feature-change-select';
+    if(result.baselineUnavailable)detail.append(make('p','固定任务中的功能说明暂不可用。已有变更与检查仍按本批原记录显示，未改动的功能用其原 ID 标识。','feature-work-meta'));
+    const featureIdFor = change => change.kind === 'feature' ? change.id : change.after?.featureId || change.before?.featureId || null;
+    const groups = new Map();
+    function groupFor(id) {if(!groups.has(id))groups.set(id,{id,changes:[],checks:[]});return groups.get(id);}
+    changes.forEach((change,index)=>groupFor(featureIdFor(change)).changes.push({change,index}));
+    for(const check of review.checks || [])groupFor(check.featureId).checks.push(check);
+    const groupTitle = group => proposalFeature(group.id)?.title || proposalFeature(group.id,'before')?.title || group.id || '未能归属的变更';
+    if(groups.size){
+      const groupLabel = make('label',`按功能阅读 · ${groups.size} 个功能`,'feature-work-field'),groupSelect = make('select');groupSelect.id = 'feature-proposal-feature-select';
+      for(const group of groups.values()){const option = make('option',`${groupTitle(group)} · ${group.changes.length} 项变更`);option.value = group.id || '';groupSelect.append(option);}
+      groupLabel.append(groupSelect);detail.append(groupLabel);
+      const groupContext = make('section',null,'feature-proposal-feature-context');groupContext.id = 'feature-proposal-feature-context';detail.append(groupContext);
+      const label = make('label','本批变更（按功能分组）','feature-work-field'),select = make('select');select.id = 'feature-change-select';
       const changeTitle = change => `${change.action === 'review-reset' ? '关联回到待审' : {feature:'功能内容',mapping:'代码关联',retraction:'撤销关联'}[change.kind]} · ${change.after?.title || change.before?.title || change.after?.code?.name || change.before?.code?.name || change.id}`;
-      changes.forEach((change,index)=>{const option = make('option',`${index+1} / ${changes.length} · ${changeTitle(change)}`);option.value = index;select.append(option);});label.append(select);detail.append(label);
+      for(const group of groups.values()){
+        const options = make('optgroup');options.label = groupTitle(group);
+        for(const {change,index} of group.changes){const option = make('option',changeTitle(change));option.value = index;options.append(option);}
+        if(group.changes.length)select.append(options);
+      }
+      label.append(select);label.hidden = !changes.length;detail.append(label);
       const display = make('div');display.id = 'feature-change-display';detail.append(display);
+      const checks = make('section',null,'feature-proposal-checks');checks.id = 'feature-proposal-checks';detail.append(checks);
+      let displayedGroup;
+      function showGroup(group){
+        groupSelect.value = group.id || '';
+        if(displayedGroup === group.id)return;
+        displayedGroup = group.id;groupContext.dataset.featureId = group.id || '';checks.dataset.featureId = group.id || '';
+        groupContext.replaceChildren(make('h4',groupTitle(group)));
+        const content = proposalFeature(group.id),changed = group.changes.some(item=>item.change.kind === 'feature');
+        if(content?.summary)groupContext.append(make('p',content.summary,'feature-proposal-feature-summary'));
+        groupContext.append(make('p',changed ? '下方是本批提议的功能内容及其关联变化。' : '功能说明来自固定任务，本批未修改；下方查看关联变化。','feature-work-meta'));
+        if(content?.description){const explanation = fold(groupContext,'完整功能说明');explanation.append(make('p',content.description));}
+        if(content?.questions?.length){const questions = fold(groupContext,`本功能待确认问题 · ${content.questions.length}`);questions.open = true;for(const question of content.questions)questions.append(make('p',question));}
+        checks.replaceChildren(make('h4','本功能的支持与限制'),make('p','以下检查只属于这份固定提案及其代码版本；并不代表当前功能已被接受、运行已验证或本批已应用。','feature-work-meta'));
+        if(!group.checks.length){
+          const retractionOnly = group.changes.length && group.changes.every(item=>item.change.kind === 'retraction');
+          checks.append(make('p',retractionOnly ? '本功能仅撤销关联，本批无需新增支持／限制检查。撤销理由与原记录在上方逐项保留。' : '本批没有该功能的支持／限制检查。','feature-work-subtitle'));
+        }
+        for(const [kind,title] of [['support','支持依据'],['limit','限制依据']]){
+          const entries = group.checks.filter(check=>check.kind === kind);if(!entries.length)continue;
+          const section = make('div',null,'feature-proposal-check-kind');section.dataset.checkKind = kind;section.append(make('h5',`${title} · ${entries.length}`));
+          let more;
+          for(const [index,check] of entries.entries()){
+            const item = make('article',null,'evidence-record feature-proposal-check');item.dataset.featureId = check.featureId;
+            item.append(make('p',check.explanation || '未填写解释'));
+            const source = fold(item,'查看引文与源码');source.append(make('blockquote',check.quote || ''),make('small',`${check.file} · UTF-16 [${check.start}, ${check.end})`),button('在固定代码版本中查看',()=>navigate({snapshot:taskSnapshot(task),featureDigest:taskDigest(task),nodeId:check.nodeId})));
+            exactDetails(source,'精确来源',check);
+            if(index < 2)section.append(item);
+            else {if(!more)more = fold(section,`其余${title} · ${entries.length-2}`);more.append(item);}
+          }
+          checks.append(section);
+        }
+      }
       function showChange(index){
-        const change = changes[index],row = make('article',null,'feature-proposal-change');row.dataset.changeIndex = index;row.dataset.changeAction = change.action;
+        const change = changes[index];if(!change)return;
+        const group = groups.get(featureIdFor(change));showGroup(group);select.value = index;proposalPositions.set(metadata.id,index);
+        const row = make('article',null,'feature-proposal-change');row.dataset.changeIndex = index;row.dataset.changeAction = change.action;row.dataset.featureId = group.id || '';
         row.append(make('h4',changeTitle(change)),make('p',change.action === 'review-reset' ? '功能说明变化，关联回到待审。需要按新的功能含义重新判断；原接受决定与依据保留在历史中。' : change.reason,'feature-work-subtitle'));
         if(change.kind === 'retraction')row.append(make('p','撤销使这条关联退出使用；原记录、依据和此前决定保留在历史中。','feature-work-callout'));
         const columns = make('div',null,'feature-proposal-columns');
         for(const [side,title] of [['before','原内容'],['after','提议内容']]){const column = make('div',null,'feature-proposal-side');column.dataset.side = side;column.append(make('strong',title));sideContent(column,change[side],side);columns.append(column);}
         row.append(columns);exactDetails(row,'精确变更记录',change);display.replaceChildren(row);
         const controls = make('div',null,'feature-work-inline-actions');
-        const previous = button('上一项',()=>{select.value = index-1;showChange(index-1);});previous.disabled = index === 0;
-        const next = button('下一项',()=>{select.value = index+1;showChange(index+1);});next.disabled = index === changes.length-1;
-        controls.append(previous,next);display.append(controls);
+        const position = group.changes.findIndex(item=>item.index === index);
+        const previous = button('上一项',()=>showChange(group.changes[position-1].index));previous.disabled = position === 0;
+        const next = button('下一项',()=>showChange(group.changes[position+1].index));next.disabled = position === group.changes.length-1;
+        controls.append(previous,make('span',`本功能 ${position+1} / ${group.changes.length} 项变更`,'feature-work-meta'),next);display.append(controls);
       }
-      select.onchange = ()=>showChange(Number(select.value));showChange(0);
+      groupSelect.onchange = ()=>{const group = groups.get(groupSelect.value || null);if(!group)return;if(group.changes.length)showChange(group.changes[0].index);else{showGroup(group);display.replaceChildren(make('p','本批没有该功能的变更记录。','feature-work-meta'));}};
+      select.onchange = ()=>showChange(Number(select.value));
+      if(changes.length)showChange(changes[proposalPositions.get(metadata.id)] ? proposalPositions.get(metadata.id) : 0);
+      else showGroup(groups.values().next().value);
     }
     if (!changes.length) detail.append(make('p','本批没有功能内容改动。探索记录和限制仍需一起阅读。','feature-work-meta'));
-    const checks = fold(detail,`支持与限制依据 · ${review.checks?.length || 0}`);
-    for (const check of review.checks || []) {const item = make('div',null,'evidence-record');item.append(make('strong',check.kind === 'limit' ? '限制依据' : '支持依据'),make('p',check.explanation || ''),make('small',check.quote || ''),make('small',`${check.file} · UTF-16 [${check.start}, ${check.end})`),button('在固定代码版本中查看',()=>navigate({snapshot:taskSnapshot(task),featureDigest:taskDigest(task),nodeId:check.nodeId})));exactDetails(item,'精确来源',check);checks.append(item);}
-    const explored = fold(detail,'本批探索范围与未探索事项','探索是外部 Agent 的声明，文件与内容版本可核对；不能把它理解为完整行为证明。');
+    const unexplored = fold(detail,`本批未探索事项 · ${review.unexplored?.length || 0}`,'以下事项属于整批范围，没有自动归入当前选中的功能。');
+    unexplored.open = !!review.unexplored?.length && review.unexplored.length <= 3;
+    for (const item of review.unexplored || []) unexplored.append(make('p',typeof item === 'string' ? item : JSON.stringify(item)));
+    if(!review.unexplored?.length)unexplored.append(make('p','本批没有填写未探索事项；这不表示完整性、运行行为或测试已得到证明。','feature-work-meta'));
+    const explored = fold(detail,`本批探索文件 · ${review.exploredFiles?.length || 0}`,'探索是外部 Agent 的声明，文件与内容版本可核对；不能把它理解为完整行为证明。');
     for (const file of review.exploredFiles || []) explored.append(make('p',typeof file === 'string' ? file : `${file.path} · SHA-256 ${file.hash}`));
-    for (const item of review.unexplored || []) explored.append(make('p','未探索：'+(typeof item === 'string' ? item : JSON.stringify(item))));
     const warnings = fold(detail,'提案适用限制','以下是系统核对范围。提案中的功能解释仍需你判断。');
     for(const warning of review.warnings || [])warnings.append(make('p',systemMessages[warning] || warning,'feature-work-meta'));
     if(review.warnings?.length)exactDetails(warnings,'原始系统提示',review.warnings);
@@ -351,7 +409,19 @@ function createFeatureWorkView({api, context, guardCurrent, onApplied, navigate,
   }
   async function loadProposal(id) {
     const request = ++detailRequest;header('REVIEW A PROPOSED CHANGE','正在读取固定提案','当前地图和草稿仍保留。');
-    try {const result = await api('/api/feature-proposals/'+encodeURIComponent(id));if (request === detailRequest && selected.kind === 'proposal' && selected.id === id) renderProposal(result);}
+    try {
+      const result = await api('/api/feature-proposals/'+encodeURIComponent(id));
+      if(request !== detailRequest || selected.kind !== 'proposal' || selected.id !== id)return;
+      if(data?.featureDigest === taskDigest(result.task))result.baselineFeatures = data.features;
+      else {
+        try {
+          const baseline = await api('/api/feature-work?'+new URLSearchParams({snapshot:taskSnapshot(result.task),featureDigest:taskDigest(result.task)}));
+          if(baseline.snapshot !== taskSnapshot(result.task) || baseline.featureDigest !== taskDigest(result.task))throw new Error('固定任务版本不匹配');
+          result.baselineFeatures = baseline.features;
+        } catch (_) {result.baselineUnavailable = true;}
+      }
+      if (request === detailRequest && selected.kind === 'proposal' && selected.id === id) renderProposal(result);
+    }
     catch (error) {if (request === detailRequest) {header('REVIEW A PROPOSED CHANGE','无法读取提案',error.message);message(error.message,'error');}}
   }
   async function decide(decision) {

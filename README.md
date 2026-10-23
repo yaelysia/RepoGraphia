@@ -149,7 +149,7 @@ node dist/cli.js features render "./reports/codex-monitor-r1/graph.json" "./repo
 
 ### 持续工作区：使用固定任务包
 
-在「功能建设」生成并下载任务包，向 Codex 提供仓库内 Skill、CLI 和任务包的绝对路径。Skill **1.3** 会进入 `agent task overview/search/inspect/relation/check/submit` 流程。提交目录包含 `revision.json`、`review.json` 和 `receipt.json`；将 **`revision.json`** 导入工作区查看差异并决定是否应用。新增和改变的关联仍待审，不由 Agent 自行接受。
+在「功能建设」生成并下载任务包，向 Codex 提供仓库内 Skill、CLI 和任务包的绝对路径。Skill **1.4** 会进入 `agent task overview/search/inspect/relation/check/submit` 流程，并要求先说明本层要回答的问题、保持同层粒度可比较、给出有行为依据的拆分理由。提交目录包含 `revision.json`、`review.json` 和 `receipt.json`；将 **`revision.json`** 导入工作区，按功能阅读变化及各自的支持／限制，再决定是否整批应用。新增和改变的关联仍待审，不由 Agent 自行接受。
 
 完整可复制任务和命令见 [功能建设说明](docs/feature-tasks.md#2-把任务交给现有-codex)。若 Skill 以前复制到用户目录，需要同步整个新版目录（含 references），或直接让 Codex 读取当前仓库内的路径。
 
