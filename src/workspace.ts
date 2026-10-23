@@ -14,10 +14,15 @@ import { checkFeatureReferences } from './feature-references.js';
 import type { FeatureReferenceVersion } from './feature-references.js';
 import { emptyFeatureWork, validFeatureWork, featureTaskScope, featureExploration, appliedInDocument, proposalExploration } from './workspace-feature-store.js';
 import type { FeatureWorkState, TaskMeta, ProposalMeta, PrepareFeatureTask, DecideFeatureProposal, ExplorationRecord } from './workspace-feature-store.js';
+import { compareDevelopmentReview, developmentReviewDigest } from './development-review.js';
+import type { DevelopmentIntent, DevelopmentReviewReport } from './development-review.js';
+import { DevelopmentReviewError, emptyDevelopmentReview, prepareDevelopmentIntent, prepareDevelopmentRecord,
+  validDevelopmentIntent, validDevelopmentReviewState, validateDevelopmentRecordRequest } from './development-review-store.js';
+import type { DevelopmentReviewState, DevelopmentReportMeta, DevelopmentRecord, DevelopmentReviewResponse, RecordDevelopmentReview } from './development-review-store.js';
 
 export interface WorkspaceSnapshot { id: string; storageDigest: string; createdAt: string; verifiedAt: string; indexedFiles: number }
 export interface WorkspaceFeature { digest: string; basisSnapshot: string; revision: number; savedAt: string }
-export interface WorkspaceTask { id: string; title: string; createdAt: string; snapshot: string; featureDigest: string | null }
+export interface WorkspaceTask { id: string; title: string; createdAt: string; snapshot: string; featureDigest: string | null; intent?: DevelopmentIntent }
 export interface WorkspaceView { snapshot: string | null; taskId: string | null; featureDigest?: string | null; readOnly?: boolean }
 interface Manifest {
   schemaVersion: 1; root: string; project: string | null; createdAt: string;
@@ -26,6 +31,8 @@ interface Manifest {
   tasks: WorkspaceTask[]; activeTaskId: string | null; view: WorkspaceView;
   /** Absent on M1 workspaces. Adding feature tasks never rewrites the older development-task contract. */
   featureWork?: FeatureWorkState;
+  /** Optional M3 records. They never stand in for feature-mapping decisions or executed tests. */
+  developmentReview?: DevelopmentReviewState;
 }
 export interface WorkspaceAnalysis { graph: CodeGraph; inputs: AnalysisInputs }
 export interface WorkspaceOptions {
@@ -197,7 +204,8 @@ export class ContinuousWorkspace {
     if (value.schemaVersion !== 1 || typeof value.root !== 'string' || !(value.project === null || typeof value.project === 'string') ||
       !Array.isArray(value.snapshots) || !Array.isArray(value.featureVersions) || !Array.isArray(value.tasks) || !value.view ||
       value.snapshots.some(entry => !digestPattern.test(entry.id) || !digestPattern.test(entry.storageDigest)) || value.featureVersions.some(entry => !digestPattern.test(entry.digest) || !digestPattern.test(entry.basisSnapshot)) ||
-      value.tasks.some(task => !taskPattern.test(task.id) || !value.snapshots.some(entry => entry.id === task.snapshot) || task.featureDigest !== null && !value.featureVersions.some(entry => entry.digest === task.featureDigest)) ||
+      value.tasks.some(task => !taskPattern.test(task.id) || !value.snapshots.some(entry => entry.id === task.snapshot) || task.featureDigest !== null && !value.featureVersions.some(entry => entry.digest === task.featureDigest) ||
+        task.intent !== undefined && !validDevelopmentIntent(task.intent)) ||
       value.latestSnapshot !== null && !value.snapshots.some(entry => entry.id === value.latestSnapshot) ||
       value.featureHead !== null && !value.featureVersions.some(entry => entry.digest === value.featureHead) ||
       value.activeTaskId !== null && !value.tasks.some(task => task.id === value.activeTaskId) ||
@@ -209,7 +217,15 @@ export class ContinuousWorkspace {
         value.featureWork.tasks.some(task => !value.snapshots.some(entry => entry.id === task.basis.snapshot) ||
           !value.featureVersions.some(entry => entry.digest === task.featureDigest)) ||
         value.featureWork.proposals.some(proposal => proposal.status === 'applied' &&
-          !value.featureVersions.some(entry => entry.digest === proposal.decision!.featureDigest))))
+          !value.featureVersions.some(entry => entry.digest === proposal.decision!.featureDigest))) ||
+      value.developmentReview !== undefined && (!validDevelopmentReviewState(value.developmentReview) ||
+        value.developmentReview.reports.some(report => {
+          const task = value.tasks.find(task => task.id === report.taskId);
+          return !task || task.snapshot !== report.before.snapshot || task.featureDigest !== report.before.featureDigest ||
+            !value.snapshots.some(entry => entry.id === report.after.snapshot) ||
+            [report.before, report.after].some(version => version.featureDigest !== null &&
+              !value.featureVersions.some(entry => entry.digest === version.featureDigest && entry.revision === version.featureRevision));
+        })))
       throw new WorkspaceError('Unsupported or damaged workspace manifest; existing data was not replaced', 500);
     return value;
   }
@@ -228,7 +244,7 @@ export class ContinuousWorkspace {
       this.manifest = next;
     } finally { try { fs.unlinkSync(temporary); } catch { /* Rename already removed it, or the failed write never created it. */ } }
   }
-  private immutable(directory: 'snapshots' | 'features' | 'feature-tasks' | 'feature-proposals', id: string, value: unknown) {
+  private immutable(directory: 'snapshots' | 'features' | 'feature-tasks' | 'feature-proposals' | 'development-reviews', id: string, value: unknown) {
     if (!digestPattern.test(id)) throw new WorkspaceError('Invalid version identifier');
     if (directory !== 'snapshots' && hash(JSON.stringify(value)) !== id) throw new WorkspaceError('Content does not match its immutable identifier', 500);
     const file = path.join(this.ensureDirectory(directory), id + '.json');
@@ -284,6 +300,7 @@ export class ContinuousWorkspace {
     try { return operation(); }
     catch (error) {
       if (error instanceof WorkspaceError) throw error;
+      if (error instanceof DevelopmentReviewError) throw new WorkspaceError(error.message, error.statusCode);
       if (error instanceof AgentError) throw new WorkspaceError(error.message, error.code === 'TASK_CONFLICT' ? 409 : 400);
       throw new WorkspaceError(error instanceof Error ? error.message : String(error),
         error && typeof error === 'object' && 'code' in error ? 500 : 400);
@@ -470,7 +487,108 @@ export class ContinuousWorkspace {
   getTask(id: string): WorkspaceTask {
     const task = this.manifest.tasks.find(task => task.id === id);
     if (!task) throw new WorkspaceError('Unknown task starting point', 404);
-    return { ...task };
+    return structuredClone(task);
+  }
+
+  private developmentState(): DevelopmentReviewState { return this.manifest.developmentReview ?? emptyDevelopmentReview(); }
+  private developmentCurrent(snapshot: string, featureDigest: string | null) {
+    const reasons: string[] = [];
+    if (this.stopped) reasons.push('工作区已关闭，当前记录只读');
+    if (snapshot !== this.manifest.latestSnapshot) reasons.push('代码已有新版本，这份比较保留原版本');
+    if (featureDigest !== this.manifest.featureHead) reasons.push('功能标注已有新版本，这份比较保留原标注');
+    if (!reasons.length && !this.checkInputs(this.readSnapshot(snapshot).inputs).current)
+      reasons.push('已保存代码发生变化，请先更新代码图再审阅');
+    return { writable: !reasons.length, reasons };
+  }
+  private assertDevelopmentCurrent(snapshot: string, featureDigest: string | null) {
+    const current = this.developmentCurrent(snapshot, featureDigest);
+    if (!current.writable) throw new WorkspaceError(current.reasons.join('；'), 409);
+  }
+  private readDevelopmentReport(metadata: DevelopmentReportMeta): DevelopmentReviewReport {
+    const file = path.join(this.ensureDirectory('development-reviews'), metadata.storageDigest + '.json'), stat = this.regularFile(file);
+    if (!stat || stat.size > 192 * 1024 * 1024) throw new WorkspaceError('已保存的开发比较缺失或超出读取预算', 500);
+    const raw = fs.readFileSync(file, 'utf8');
+    if (hash(raw) !== metadata.storageDigest) throw new WorkspaceError('已保存的开发比较内容损坏，原记录未被替换', 500);
+    let report: DevelopmentReviewReport;
+    try { report = JSON.parse(raw); } catch { throw new WorkspaceError('已保存的开发比较不是完整 JSON', 500); }
+    if (report.reviewVersion !== 1 || report.comparisonDigest !== metadata.comparisonDigest ||
+      developmentReviewDigest(report) !== metadata.comparisonDigest || report.task?.id !== metadata.taskId ||
+      contentDigest(report.before) !== contentDigest(metadata.before) || contentDigest(report.after) !== contentDigest(metadata.after))
+      throw new WorkspaceError('开发比较内容与固定版本记录不符', 500);
+    const task = this.getTask(metadata.taskId);
+    if (contentDigest(report.task) !== contentDigest({ id: task.id, title: task.title, ...(task.intent ? { intent: task.intent } : {}) }))
+      throw new WorkspaceError('已保存比较的目标与原任务声明不一致，记录未被重写', 500);
+    return report;
+  }
+  private developmentResponse(report: DevelopmentReviewReport, historical = false): DevelopmentReviewResponse {
+    const state = this.developmentState(), counts = new Map<string, number>();
+    for (const record of state.records) counts.set(record.comparisonDigest, (counts.get(record.comparisonDigest) ?? 0) + 1);
+    const records = state.records.filter(record => record.comparisonDigest === report.comparisonDigest);
+    // Validate lazily against the fixed report; opening a workspace need not read every historical source bundle.
+    for (const { id: _, comparisonDigest: _digest, sequence: _sequence, at: _at, ...record } of records) {
+      try { prepareDevelopmentRecord(record, report); }
+      catch { throw new WorkspaceError('已保存的审阅对象或内容与固定比较不一致，原记录未被替换', 500); }
+    }
+    return { report, revision: records.length, records: structuredClone(records),
+      history: state.reports.filter(item => item.taskId === report.task.id).map(({ storageDigest: _, ...item }) =>
+        ({ ...structuredClone(item), recordCount: counts.get(item.comparisonDigest) ?? 0 })),
+      current: historical ? { writable: false, reasons: ['正在查看已保存的历史比较，记录保持只读'] }
+        : this.developmentCurrent(report.after.snapshot, report.after.featureDigest) };
+  }
+  /** A fixed comparison is read-only until a separate review record is explicitly appended. */
+  developmentReview(taskId: string, snapshot?: string, featureDigest?: string | null): DevelopmentReviewResponse {
+    return this.featureOperation(() => {
+      const task = this.getTask(taskId), selected = snapshot ?? this.manifest.latestSnapshot;
+      if (!selected) throw new WorkspaceError('代码图尚未准备好，请先检查更新', 409);
+      const selectedDigest = featureDigest === undefined ? this.manifest.featureHead : featureDigest;
+      const before = this.readSnapshot(task.snapshot), after = this.readSnapshot(selected);
+      const beforeFeatures = this.getFeatures(task.featureDigest) ?? null, afterFeatures = this.getFeatures(selectedDigest) ?? null;
+      const history = new Map<string, FeatureReferenceVersion>();
+      for (const map of [beforeFeatures, afterFeatures]) if (map)
+        for (const [id, version] of this.referenceHistory(map)) history.set(id, version);
+      const report = compareDevelopmentReview({ task: { id: task.id, title: task.title, ...(task.intent ? { intent: structuredClone(task.intent) } : {}) },
+        before: { ...before, features: beforeFeatures }, after: { ...after, features: afterFeatures }, history });
+      const stored = this.developmentState().reports.find(item => item.comparisonDigest === report.comparisonDigest);
+      return this.developmentResponse(stored ? this.readDevelopmentReport(stored) : report);
+    });
+  }
+  savedDevelopmentReview(comparisonDigest: string): DevelopmentReviewResponse {
+    return this.featureOperation(() => {
+      const metadata = this.developmentState().reports.find(item => item.comparisonDigest === comparisonDigest);
+      if (!metadata) throw new WorkspaceError('没有这份已保存的开发比较', 404);
+      return this.developmentResponse(this.readDevelopmentReport(metadata), true);
+    });
+  }
+  /** One manifest publication freezes the report and appends one version-specific declaration. */
+  recordDevelopmentReview(input: RecordDevelopmentReview): DevelopmentReviewResponse {
+    return this.featureOperation(() => {
+      this.assertOpen(); validateDevelopmentRecordRequest(input);
+      this.assertDevelopmentCurrent(input.snapshot, input.featureDigest);
+      const response = this.developmentReview(input.taskId, input.snapshot, input.featureDigest), report = response.report;
+      if (report.comparisonDigest !== input.comparisonDigest) throw new WorkspaceError('比较内容与刚才查看的版本不符，请重新核对，草稿仍可保留', 409);
+      if (response.revision !== input.expectedRevision) throw new WorkspaceError('其他页面已记录新的审阅，请先核对记录后重试，草稿仍可保留', 409);
+      const record = prepareDevelopmentRecord(input.record, report), state = this.developmentState();
+      if (state.records.length >= 100000) throw new WorkspaceError('审阅记录已达到工作区预算，请导出记录后使用新的工作区');
+      const now = new Date().toISOString(), storageDigest = contentDigest(report);
+      let metadata = state.reports.find(item => item.comparisonDigest === report.comparisonDigest);
+      if (!metadata && state.reports.length >= 10000) throw new WorkspaceError('固定比较已达到工作区预算，请导出记录后使用新的工作区');
+      if (Buffer.byteLength(JSON.stringify(report)) > 192 * 1024 * 1024) throw new WorkspaceError('开发比较超出 192 MiB，请缩小所选项目范围');
+      if (metadata && metadata.storageDigest !== storageDigest) throw new WorkspaceError('已有固定比较与当前内容不一致', 500);
+      this.immutable('development-reviews', storageDigest, report);
+      const entry: DevelopmentRecord = { ...record, id: randomUUID(), comparisonDigest: report.comparisonDigest,
+        sequence: input.expectedRevision + 1, at: now };
+      metadata ??= { comparisonDigest: report.comparisonDigest, storageDigest, taskId: input.taskId, createdAt: now,
+        before: structuredClone(report.before), after: structuredClone(report.after) };
+      const next: DevelopmentReviewState = { ...state,
+        reports: state.reports.some(item => item.comparisonDigest === metadata!.comparisonDigest) ? state.reports : [...state.reports, metadata],
+        records: [...state.records, entry] };
+      this.commit({ ...this.manifest, developmentReview: next }, () => {
+        this.assertOpen(); this.assertDevelopmentCurrent(input.snapshot, input.featureDigest);
+        if (this.developmentState().records.filter(row => row.comparisonDigest === input.comparisonDigest).length !== input.expectedRevision)
+          throw new WorkspaceError('审阅记录在保存期间变化，请核对后重试', 409);
+      });
+      return this.developmentResponse(report);
+    });
   }
   state() {
     return { schemaVersion: 1, workspace: { name: path.basename(this.root), root: this.root, directory: this.directory, project: this.project ?? null, createdAt: this.manifest.createdAt },
@@ -478,7 +596,7 @@ export class ContinuousWorkspace {
       lastCheckedAt: this.lastCheckedAt, latestSnapshot: this.manifest.latestSnapshot,
       snapshots: this.manifest.snapshots.map(entry => ({ ...entry })),
       feature: this.manifest.featureVersions.find(entry => entry.digest === this.manifest.featureHead) ?? null,
-      tasks: this.manifest.tasks.map(task => ({ ...task })), activeTaskId: this.manifest.activeTaskId,
+      tasks: structuredClone(this.manifest.tasks), activeTaskId: this.manifest.activeTaskId,
       view: { ...this.manifest.view, featureDigest: this.manifest.view.featureDigest === undefined ? this.manifest.featureHead : this.manifest.view.featureDigest, readOnly: this.manifest.view.readOnly ?? false },
       watch: { active: this.watchActive, reconciliationMs: this.reconcileMs, scope: 'saved-files' } };
   }
@@ -579,11 +697,12 @@ export class ContinuousWorkspace {
     this.commit({ ...this.manifest, view, featureHead: digest, featureVersions: previous ? this.manifest.featureVersions : [...this.manifest.featureVersions, entry] });
     return { ...entry };
   }
-  async beginTask(title: string, expectedFeatureDigest: string | null): Promise<WorkspaceTask> {
+  async beginTask(title: string, expectedFeatureDigest: string | null, intent?: unknown): Promise<WorkspaceTask> {
     if (this.stopped) throw new WorkspaceError('Workspace is closed', 409);
     if (this.establishing) throw new WorkspaceError('A task starting point is already being established', 409);
     if (typeof title !== 'string' || title.trim().length > 200) throw new WorkspaceError('Task title must be at most 200 characters');
     if (expectedFeatureDigest !== this.manifest.featureHead) throw new WorkspaceError('Annotations changed before the task started; refresh the saved version', 409);
+    const declaration = intent === undefined ? undefined : this.featureOperation(() => prepareDevelopmentIntent(intent, this.getFeatures(expectedFeatureDigest)));
     this.establishing = true;
     try {
       // Always request a fresh run after this action, including when an older run is already in flight.
@@ -591,9 +710,12 @@ export class ContinuousWorkspace {
       if (expectedFeatureDigest !== this.manifest.featureHead) throw new WorkspaceError('Annotations changed while establishing the task; retry with the saved version', 409);
       if (!this.latestInputs || !this.checkInputs(this.latestInputs).current || snapshot.id !== this.manifest.latestSnapshot)
         throw new WorkspaceError('Files changed while establishing the task; retry after saving', 409);
-      const task: WorkspaceTask = { id: randomUUID(), title: title.trim() || '本轮开发', createdAt: new Date().toISOString(), snapshot: snapshot.id, featureDigest: expectedFeatureDigest };
-      this.commit({ ...this.manifest, tasks: [...this.manifest.tasks, task], activeTaskId: task.id, view: { ...this.manifest.view, taskId: task.id } });
-      return { ...task };
+      const task: WorkspaceTask = { id: randomUUID(), title: title.trim() || '本轮开发', createdAt: new Date().toISOString(), snapshot: snapshot.id, featureDigest: expectedFeatureDigest,
+        ...(declaration ? { intent: declaration } : {}) };
+      this.commit({ ...this.manifest, tasks: [...this.manifest.tasks, task], activeTaskId: task.id, view: { ...this.manifest.view, taskId: task.id } }, () => {
+        this.assertOpen(); this.assertDevelopmentCurrent(snapshot.id, expectedFeatureDigest);
+      });
+      return structuredClone(task);
     } finally { this.establishing = false; }
   }
   saveView(view: WorkspaceView) {

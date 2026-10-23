@@ -5,6 +5,7 @@ import { ContinuousWorkspace, WorkspaceError } from './workspace.js';
 import { compareWorkspaceGraphs } from './workspace-diff.js';
 import { renderHtml } from './report.js';
 import { AgentError } from './agent.js';
+import type { RecordDevelopmentReview } from './development-review-store.js';
 
 const bodyLimit = 16 * 1024 * 1024;
 const noCache = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff' };
@@ -52,7 +53,7 @@ export async function startWorkspaceServer(workspace: ContinuousWorkspace, optio
       if (method === 'GET' && url.pathname === '/') {
         send(response, fs.readFileSync(new URL('../viewer/workspace.html', import.meta.url), 'utf8'), 'text/html; charset=utf-8', { 'Content-Security-Policy': parentPolicy }); return;
       }
-      if (method === 'GET' && ['/workspace.js', '/workspace-analysis.js', '/workspace.css'].includes(url.pathname)) {
+      if (method === 'GET' && ['/workspace.js', '/workspace-analysis.js', '/workspace-review.js', '/workspace.css'].includes(url.pathname)) {
         send(response, fs.readFileSync(new URL('../viewer' + url.pathname, import.meta.url), 'utf8'), url.pathname.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/css; charset=utf-8'); return;
       }
       if (method === 'GET' && url.pathname.startsWith('/report/')) {
@@ -120,13 +121,32 @@ export async function startWorkspaceServer(workspace: ContinuousWorkspace, optio
         if (!snapshot) throw new WorkspaceError('The first code version is still being prepared', 409);
         json(response, compareWorkspaceGraphs(workspace.getGraph(task.snapshot), workspace.getGraph(snapshot))); return;
       }
+      if (method === 'GET' && url.pathname === '/api/development-review') {
+        const selected = url.searchParams.get('featureDigest');
+        json(response, workspace.developmentReview(url.searchParams.get('task') ?? '', url.searchParams.get('snapshot') ?? undefined,
+          selected === 'none' ? null : selected ?? undefined)); return;
+      }
+      if (method === 'POST' && url.pathname === '/api/development-review/records') {
+        const body = await jsonBody(request);
+        json(response, workspace.recordDevelopmentReview(body as unknown as RecordDevelopmentReview), 201); return;
+      }
+      const developmentRoute = /^\/api\/development-reviews\/([a-f0-9]{64})(\/export)?$/.exec(url.pathname);
+      if (method === 'GET' && developmentRoute) {
+        const review = workspace.savedDevelopmentReview(developmentRoute[1]!);
+        if (developmentRoute[2]) {
+          send(response, JSON.stringify({ exportVersion: 1, ...review }), 'application/json; charset=utf-8',
+            { 'Content-Disposition': `attachment; filename="repographia-development-${developmentRoute[1]!.slice(0, 12)}.json"` });
+        } else json(response, review);
+        return;
+      }
       if (method === 'POST' && url.pathname === '/api/refresh') {
         await jsonBody(request); void workspace.refresh().catch(() => undefined); json(response, { queued: true }, 202); return;
       }
       if (method === 'POST' && url.pathname === '/api/baseline') {
         const body = await jsonBody(request);
-        if (typeof body.title !== 'string' || !(body.expectedFeatureDigest === null || typeof body.expectedFeatureDigest === 'string')) throw new WorkspaceError('Expected a title and saved annotation version');
-        json(response, { task: await workspace.beginTask(body.title, body.expectedFeatureDigest) }, 201); return;
+        if (Object.keys(body).some(key => !['title', 'expectedFeatureDigest', 'intent'].includes(key)) ||
+          typeof body.title !== 'string' || !(body.expectedFeatureDigest === null || typeof body.expectedFeatureDigest === 'string')) throw new WorkspaceError('Expected a title and saved annotation version');
+        json(response, { task: await workspace.beginTask(body.title, body.expectedFeatureDigest, body.intent) }, 201); return;
       }
       if (method === 'PUT' && url.pathname === '/api/features') {
         const body = await jsonBody(request);

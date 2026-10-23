@@ -121,6 +121,10 @@ with tempfile.TemporaryDirectory(prefix='repographia-feature-task-browser-') as 
                 state = api('/api/state')
                 return api('/api/feature-work?snapshot='+state['latestSnapshot']+'&featureDigest='+state['feature']['digest'])
 
+            def feature_card(feature_id):
+                # Outgoing scenes retain their card markup only as inert visual copies.
+                return frame.locator('.feature-scene-layer:not(.feature-motion-ghost) .feature-card[data-feature="'+feature_id+'"]')
+
             def map_draft(name):
                 page.locator('#show-map').click()
                 frame.locator('#features-tab').click()
@@ -172,7 +176,7 @@ with tempfile.TemporaryDirectory(prefix='repographia-feature-task-browser-') as 
             def accept_mapping(reason):
                 page.locator('#show-map').click()
                 frame.locator('#features-tab').click()
-                frame.locator('.feature-card[data-feature="f-report"]').click()
+                feature_card('f-report').click()
                 frame.locator('.feature-detail-actions').get_by_role('button', name='关联代码', exact=True).click()
                 frame.locator('.feature-code-node[data-mapping="m-report"]').click()
                 frame.locator('.feature-detail-tabs button[data-tab=review]').click()
@@ -249,6 +253,29 @@ with tempfile.TemporaryDirectory(prefix='repographia-feature-task-browser-') as 
             assert len(current['references']['unassignedNodes']) > 0
             checked('whole proposal applies atomically as proposed content; exploration and unassigned code remain distinct')
 
+            # Keep the real outgoing visual copy present while interacting with the
+            # new scene. A raw CSS card locator used to match both during this overlap.
+            page.locator('#show-map').click()
+            frame.locator('#features-tab').click()
+            frame.locator('#feature-breadcrumb').evaluate('''nav => nav.addEventListener('click', () => {
+                const ghost = document.querySelector('.feature-motion-ghost');
+                if (ghost) for (const animation of ghost.getAnimations()) animation.pause();
+            }, {once: true})''')
+            frame.locator('#feature-breadcrumb button').click()
+            ghost = frame.locator('.feature-motion-ghost')
+            expect(ghost).to_have_count(1)
+            assert ghost.evaluate('node => node.inert && node.getAttribute("aria-hidden") === "true" && getComputedStyle(node).pointerEvents === "none"')
+            assert ghost.evaluate('node => node.getAnimations().some(animation => animation.playState === "paused")')
+            expect(frame.locator('.feature-card[data-feature="f-report"]')).to_have_count(2)
+            expect(feature_card('f-report')).to_have_count(1)
+            feature_card('f-report').click()
+            expect(feature_card('f-report')).to_have_attribute('aria-pressed', 'true')
+            expect(frame.locator('#detail h3')).to_have_text('导出报告')
+            expect(ghost).to_have_count(1)
+            ghost.evaluate('node => { for (const animation of node.getAnimations()) animation.play(); }')
+            expect(ghost).to_have_count(0)
+            checked('real motion overlap keeps one interactive feature card while the inert visual copy remains, then removes the copy')
+
             accept_mapping('接受原固定依据上的关联，非代码验收。')
             frame.locator('.feature-continue-analysis').click()
             expect(page.locator('#feature-task-feature')).to_have_value('f-report')
@@ -305,9 +332,9 @@ with tempfile.TemporaryDirectory(prefix='repographia-feature-task-browser-') as 
             assert all(item['decision'] == 'proposed' for item in current['references']['mappings'])
             page.locator('#show-map').click()
             frame.locator('#features-tab').click()
-            frame.locator('.feature-card[data-feature="f-report"]').click()
+            feature_card('f-report').click()
             frame.locator('.feature-detail-actions .feature-enter').click()
-            expect(frame.locator('.feature-card[data-feature="f-content"]')).to_be_visible()
+            expect(feature_card('f-content')).to_be_visible()
             checked('scoped revision exposes before/after meaning and explicit hierarchy; changed accepted mappings return to proposed')
 
             support.write_text('export function helper() { return "changed again"; }\nexport function addedCode() { return 1; }\n', encoding='utf-8')
