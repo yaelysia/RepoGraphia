@@ -1,5 +1,13 @@
 # RepoGraphia 当前检查点
 
+## CP46：功能树构造与阅读优先，执行适配后置
+
+2026-10-23，用户明确借鉴 Archify 的 UI 布局、功能树展开和内容组织，同时保留 RepoGraphia 的程序代码图与开发审阅。远端 master 仍为 `0ef69d3dc9256dbfeea7a8bd625004a84c9525b5`；准备分支 `docs/m4-preparation`／草案 [PR #16](https://github.com/yaelysia/RepoGraphia/pull/16) 仅调整文档。
+
+当前 M4 改为：同数据阅读原型与复用选择 → 功能树阅读接入 → 构造与审阅衔接。原工作台启动 Agent 方案后置，现有外部 Agent 流程继续使用。展开已有子功能与继续分析分开，图面投影不改写依据、层级或人工决定。
+
+先读 [CP46](checkpoints/CP46-function-tree-reading-plan.md) 和 [功能树构造与阅读方案](function-tree-reading-plan.md)。本轮尚未实现新 UI、运行 Archify 或完成同数据交互验收；历史 CP45 的 M4 指原执行适配提案，后续按 CP46 的新顺序接手。
+
 ## CP45：M1～M3 用户验收通过，下一阶段准备
 
 2026-10-23，用户确认前面功能测试正常。导出修复 PR [#15](https://github.com/yaelysia/RepoGraphia/pull/15) 已合入 master `0ef69d3dc9256dbfeea7a8bd625004a84c9525b5`，合并后的 [Verify #63](https://github.com/yaelysia/RepoGraphia/actions/runs/39914395704) 已重新核对为全部通过。CP43/44 保留原历史，此处补充最终状态；本次未重复运行用户试跑数据。
