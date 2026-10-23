@@ -7,6 +7,13 @@ import { createFeatureMapApi } from './feature-map.js';
 import type { FeatureMap } from './feature-map.js';
 import { analysisInputDigest, checkAnalysisInputs, fileKey, hash, inside } from './project.js';
 import type { AnalysisInputs } from './project.js';
+import { AgentError, digest as contentDigest } from './agent.js';
+import { createFeatureTask, validateFeatureTaskBundle, checkFeatureRevision } from './feature-tasks.js';
+import type { FeatureTaskBundle, FeatureRevision, FeatureRevisionReview } from './feature-tasks.js';
+import { checkFeatureReferences } from './feature-references.js';
+import type { FeatureReferenceVersion } from './feature-references.js';
+import { emptyFeatureWork, validFeatureWork, featureTaskScope, featureExploration, appliedInDocument, proposalExploration } from './workspace-feature-store.js';
+import type { FeatureWorkState, TaskMeta, ProposalMeta, PrepareFeatureTask, DecideFeatureProposal, ExplorationRecord } from './workspace-feature-store.js';
 
 export interface WorkspaceSnapshot { id: string; storageDigest: string; createdAt: string; verifiedAt: string; indexedFiles: number }
 export interface WorkspaceFeature { digest: string; basisSnapshot: string; revision: number; savedAt: string }
@@ -17,6 +24,8 @@ interface Manifest {
   snapshots: WorkspaceSnapshot[]; latestSnapshot: string | null;
   featureVersions: WorkspaceFeature[]; featureHead: string | null;
   tasks: WorkspaceTask[]; activeTaskId: string | null; view: WorkspaceView;
+  /** Absent on M1 workspaces. Adding feature tasks never rewrites the older development-task contract. */
+  featureWork?: FeatureWorkState;
 }
 export interface WorkspaceAnalysis { graph: CodeGraph; inputs: AnalysisInputs }
 export interface WorkspaceOptions {
@@ -195,7 +204,12 @@ export class ContinuousWorkspace {
       value.view.snapshot !== null && !value.snapshots.some(entry => entry.id === value.view.snapshot) ||
       value.view.taskId !== null && !value.tasks.some(task => task.id === value.view.taskId) ||
       value.view.featureDigest !== undefined && value.view.featureDigest !== null && !value.featureVersions.some(entry => entry.digest === value.view.featureDigest) ||
-      value.view.readOnly !== undefined && typeof value.view.readOnly !== 'boolean')
+      value.view.readOnly !== undefined && typeof value.view.readOnly !== 'boolean' ||
+      value.featureWork !== undefined && (!validFeatureWork(value.featureWork) ||
+        value.featureWork.tasks.some(task => !value.snapshots.some(entry => entry.id === task.basis.snapshot) ||
+          !value.featureVersions.some(entry => entry.digest === task.featureDigest)) ||
+        value.featureWork.proposals.some(proposal => proposal.status === 'applied' &&
+          !value.featureVersions.some(entry => entry.digest === proposal.decision!.featureDigest))))
       throw new WorkspaceError('Unsupported or damaged workspace manifest; existing data was not replaced', 500);
     return value;
   }
@@ -203,24 +217,26 @@ export class ContinuousWorkspace {
     const fd = fs.openSync(file, 'wx', 0o600);
     try { fs.writeFileSync(fd, content, 'utf8'); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
   }
-  private commit(next: Manifest) {
+  private commit(next: Manifest, beforePublish?: () => void) {
     this.assertStorage();
     const file = path.join(this.directory, 'workspace.json'); this.regularFile(file);
     const temporary = path.join(this.directory, `state-${randomUUID()}.tmp`);
     try {
       this.writeDurable(temporary, JSON.stringify(next, null, 2));
+      beforePublish?.();
       fs.renameSync(temporary, file);
       this.manifest = next;
     } finally { try { fs.unlinkSync(temporary); } catch { /* Rename already removed it, or the failed write never created it. */ } }
   }
-  private immutable(directory: 'snapshots' | 'features', id: string, value: unknown) {
+  private immutable(directory: 'snapshots' | 'features' | 'feature-tasks' | 'feature-proposals', id: string, value: unknown) {
     if (!digestPattern.test(id)) throw new WorkspaceError('Invalid version identifier');
+    if (directory !== 'snapshots' && hash(JSON.stringify(value)) !== id) throw new WorkspaceError('Content does not match its immutable identifier', 500);
     const file = path.join(this.ensureDirectory(directory), id + '.json');
     if (this.regularFile(file)) {
       const raw = fs.readFileSync(file, 'utf8'), digest = hash(raw);
       if (directory === 'features') {
         if (hash(JSON.stringify(featureApi.validate(JSON.parse(raw)))) !== id) throw new WorkspaceError('Stored annotation version is damaged', 500);
-      } else {
+      } else if (directory === 'snapshots') {
         const entry = this.manifest.snapshots.find(entry => entry.id === id);
         if (entry) {
           if (entry.storageDigest !== digest) throw new WorkspaceError('Stored code version is damaged', 500);
@@ -233,7 +249,7 @@ export class ContinuousWorkspace {
             analysisInputDigest(previous.inputs) !== analysisInputDigest(current.inputs))
             throw new WorkspaceError('An incomplete or damaged unpublished code version exists; it was not reused', 500);
         }
-      }
+      } else if (digest !== id) throw new WorkspaceError('Stored feature task or proposal is damaged', 500);
       return digest;
     }
     const temporary = path.join(this.ensureDirectory(directory), `${id}-${randomUUID()}.tmp`);
@@ -263,6 +279,194 @@ export class ContinuousWorkspace {
     return document;
   }
   get featureDigest(): string | null { return this.manifest.featureHead; }
+
+  private featureOperation<T>(operation: () => T): T {
+    try { return operation(); }
+    catch (error) {
+      if (error instanceof WorkspaceError) throw error;
+      if (error instanceof AgentError) throw new WorkspaceError(error.message, error.code === 'TASK_CONFLICT' ? 409 : 400);
+      throw new WorkspaceError(error instanceof Error ? error.message : String(error),
+        error && typeof error === 'object' && 'code' in error ? 500 : 400);
+    }
+  }
+  private featureObject(value: unknown, keys: string[]) {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !keys.includes(key)))
+      throw new WorkspaceError('Invalid feature-work input or unknown field');
+  }
+  private assertOpen() {
+    if (this.stopped) throw new WorkspaceError('Workspace is closed', 409);
+  }
+  private checkedFeatureBaseline(snapshot: string, digest: string): WorkspaceAnalysis {
+    this.assertOpen();
+    if (typeof snapshot !== 'string' || !digestPattern.test(snapshot) || typeof digest !== 'string' || !digestPattern.test(digest))
+      throw new WorkspaceError('An explicit code snapshot and annotation digest are required');
+    if (snapshot !== this.manifest.latestSnapshot || digest !== this.manifest.featureHead)
+      throw new WorkspaceError('代码或标注基线已变化；请核对当前版本后重新准备任务', 409);
+    const version = this.readSnapshot(snapshot);
+    if (!this.checkInputs(version.inputs).current) throw new WorkspaceError('已保存的代码输入发生变化；请先刷新代码图', 409);
+    return version;
+  }
+  private featureWorkState(): FeatureWorkState { return this.manifest.featureWork ?? emptyFeatureWork(); }
+  private featureTaskMeta(id: string): TaskMeta {
+    const task = this.featureWorkState().tasks.find(task => task.id === id);
+    if (!task) throw new WorkspaceError('Unknown feature analysis task', 404);
+    return task;
+  }
+  private featureProposalMeta(id: string): ProposalMeta {
+    const proposal = this.featureWorkState().proposals.find(proposal => proposal.id === id);
+    if (!proposal) throw new WorkspaceError('Unknown feature proposal', 404);
+    return proposal;
+  }
+  private readFeatureBlob(directory: 'feature-tasks' | 'feature-proposals', digest: string): unknown {
+    if (!digestPattern.test(digest)) throw new WorkspaceError('Invalid stored feature-work identifier', 500);
+    const file = path.join(this.ensureDirectory(directory), digest + '.json'), stat = this.regularFile(file);
+    if (!stat || stat.size > (directory === 'feature-tasks' ? 192 : 5) * 1024 * 1024)
+      throw new WorkspaceError('Stored feature task or proposal is missing or exceeds its budget', 500);
+    const raw = fs.readFileSync(file, 'utf8');
+    if (hash(raw) !== digest) throw new WorkspaceError('Stored feature task or proposal is damaged', 500);
+    try { return JSON.parse(raw); } catch { throw new WorkspaceError('Stored feature task or proposal is damaged', 500); }
+  }
+  featureTaskBundle(id: string): FeatureTaskBundle {
+    return this.featureOperation(() => {
+      const metadata = this.featureTaskMeta(id), raw = this.readFeatureBlob('feature-tasks', metadata.bundleDigest);
+      const bundle = validateFeatureTaskBundle(raw), { taskDigest, bundleDigest: _, ...task } = metadata;
+      if (contentDigest(bundle.task) !== contentDigest(task) || bundle.taskDigest !== taskDigest)
+        throw new WorkspaceError('Stored task metadata does not match its immutable bundle', 500);
+      return bundle;
+    });
+  }
+  private storedFeatureProposal(metadata: ProposalMeta): FeatureRevision {
+    const raw = this.readFeatureBlob('feature-proposals', metadata.contentDigest) as FeatureRevision;
+    if (raw?.taskId !== metadata.taskId || raw.batchId !== metadata.batchId || raw.summary !== metadata.summary)
+      throw new WorkspaceError('Stored proposal metadata does not match its immutable content', 500);
+    return raw;
+  }
+  private referenceHistory(map: FeatureMap): Map<string, FeatureReferenceVersion> {
+    const history = new Map<string, FeatureReferenceVersion>();
+    const ids = new Set(map.mappings.map(mapping => (mapping.basis ?? map.basis).snapshot));
+    for (const id of ids) if (this.manifest.snapshots.some(version => version.id === id)) history.set(id, this.readSnapshot(id));
+    return history;
+  }
+  private explorationRecords(map: FeatureMap): ExplorationRecord[] {
+    const records: ExplorationRecord[] = [], bundles = new Map<string, FeatureTaskBundle>();
+    for (const metadata of this.featureWorkState().proposals) {
+      if (!appliedInDocument(map, metadata)) continue;
+      let bundle = bundles.get(metadata.taskId);
+      if (!bundle) { bundle = this.featureTaskBundle(metadata.taskId); bundles.set(metadata.taskId, bundle); }
+      const proposal = this.storedFeatureProposal(metadata);
+      records.push(...proposalExploration(metadata, proposal, bundle.task, bundle.graph));
+    }
+    return records;
+  }
+  featureWork(snapshot?: string, featureDigest?: string) {
+    return this.featureOperation(() => {
+      const selected = snapshot ?? this.manifest.latestSnapshot, digest = featureDigest ?? this.manifest.featureHead;
+      if (!selected || !digest) throw new WorkspaceError('Code and annotations are not ready; refresh the workspace first', 409);
+      const current = this.readSnapshot(selected), map = this.getFeatures(digest)!;
+      const references = checkFeatureReferences(current, map, this.referenceHistory(map));
+      const exploration = featureExploration(current.graph, this.explorationRecords(map));
+      const work = this.featureWorkState();
+      return { snapshot: selected, featureDigest: digest, features: structuredClone(map.features),
+        tasks: structuredClone(work.tasks), proposals: structuredClone(work.proposals), references, exploration,
+        coverage: structuredClone(current.graph.coverage) };
+    });
+  }
+  prepareFeatureTask(input: PrepareFeatureTask): TaskMeta {
+    return this.featureOperation(() => {
+      this.assertOpen(); this.featureObject(input, ['kind','featureId','goal','expectedSnapshot','expectedFeatureDigest']);
+      if (!['overview','feature','changes'].includes(input.kind) || typeof input.goal !== 'string' || !input.goal.trim() || input.goal.length > 2000 ||
+        input.kind !== 'feature' && input.featureId !== undefined) throw new WorkspaceError('Invalid feature task kind, target, or goal');
+      const current = this.checkedFeatureBaseline(input.expectedSnapshot, input.expectedFeatureDigest);
+      const map = this.getFeatures(input.expectedFeatureDigest)!;
+      if (input.kind === 'feature' && !map.features.some(feature => feature.id === input.featureId)) throw new WorkspaceError('Unknown selected feature', 404);
+      const work = this.featureWork(input.expectedSnapshot, input.expectedFeatureDigest);
+      const allowed = featureTaskScope(current.graph, map, work.references, work.exploration, input.kind, input.featureId);
+      const bundle = createFeatureTask(current.graph, map, input.kind, input.goal, allowed);
+      bundle.references = { references: work.references, exploration: work.exploration, coverage: work.coverage };
+      if (Buffer.byteLength(JSON.stringify(bundle)) > 192 * 1024 * 1024) throw new WorkspaceError('Task bundle exceeds 192 MiB; narrow the indexed project');
+      const metadata: TaskMeta = { ...bundle.task, taskDigest: bundle.taskDigest, bundleDigest: contentDigest(bundle) };
+      this.immutable('feature-tasks', metadata.bundleDigest, bundle);
+      const state = this.featureWorkState();
+      this.commit({ ...this.manifest, featureWork: { ...state, tasks: [...state.tasks, metadata] } },
+        () => { this.checkedFeatureBaseline(input.expectedSnapshot, input.expectedFeatureDigest); });
+      return structuredClone(metadata);
+    });
+  }
+  importFeatureProposal(input: { proposal: unknown; author: string }): ProposalMeta {
+    return this.featureOperation(() => {
+      this.assertOpen(); this.featureObject(input, ['proposal','author']);
+      this.featureObject(input.proposal, ['revisionProtocol','taskId','taskDigest','snapshot','baseDigest','expectedRevision','batchId','summary','features','mappings','retractions','checks','exploredFiles','unexplored']);
+      const proposal = input.proposal as FeatureRevision, bundle = this.featureTaskBundle(proposal.taskId), now = new Date().toISOString();
+      checkFeatureRevision(bundle, proposal, input.author, now);
+      if (Buffer.byteLength(JSON.stringify(proposal)) > 5 * 1024 * 1024) throw new WorkspaceError('Proposal exceeds 5 MiB');
+      const id = contentDigest(proposal), state = this.featureWorkState(), previous = state.proposals.find(item => item.id === id);
+      if (previous) { this.storedFeatureProposal(previous); return structuredClone(previous); }
+      if (state.proposals.some(item => item.taskId === proposal.taskId && item.batchId === proposal.batchId))
+        throw new WorkspaceError('This task batch ID already identifies different proposal content; use a new batch ID', 409);
+      const metadata: ProposalMeta = { id, contentDigest: id, taskId: proposal.taskId, batchId: proposal.batchId, summary: proposal.summary,
+        author: input.author, createdAt: now, status: 'pending' };
+      this.immutable('feature-proposals', id, proposal);
+      this.assertOpen(); this.commit({ ...this.manifest, featureWork: { ...state, proposals: [...state.proposals, metadata] } });
+      return structuredClone(metadata);
+    });
+  }
+  private featureProposalReview(metadata: ProposalMeta, task: TaskMeta, result: FeatureRevisionReview) {
+    const { document: _, ...review } = result, reasons: string[] = [];
+    if (metadata.status !== 'pending') return { ...review, status: metadata.status, reasons };
+    if (this.stopped) reasons.push('workspace-closed');
+    if (task.basis.snapshot !== this.manifest.latestSnapshot) reasons.push('snapshot-conflict');
+    if (task.featureDigest !== this.manifest.featureHead) reasons.push('feature-conflict');
+    if (!reasons.length && !this.checkInputs(this.readSnapshot(task.basis.snapshot).inputs).current) reasons.push('saved-inputs-changed');
+    return { ...review, status: reasons.length ? 'stale' : 'ready', reasons };
+  }
+  featureProposal(id: string) {
+    return this.featureOperation(() => {
+      const metadata = this.featureProposalMeta(id), task = this.featureTaskMeta(metadata.taskId), bundle = this.featureTaskBundle(task.id);
+      const proposal = this.storedFeatureProposal(metadata), result = checkFeatureRevision(bundle, proposal, metadata.author, metadata.createdAt);
+      return { proposal, metadata: structuredClone(metadata), task: structuredClone(task), review: this.featureProposalReview(metadata, task, result) };
+    });
+  }
+  decideFeatureProposal(id: string, input: DecideFeatureProposal): { proposal: ProposalMeta; feature?: WorkspaceFeature } {
+    return this.featureOperation(() => {
+      this.assertOpen(); this.featureObject(input, ['decision','actor','reason','expectedSnapshot','expectedFeatureDigest']);
+      if (!['apply','reject'].includes(input.decision) || typeof input.actor !== 'string' || !input.actor.trim() || input.actor.length > 200 ||
+        typeof input.reason !== 'string' || !input.reason.trim() || input.reason.length > 8000 ||
+        typeof input.expectedSnapshot !== 'string' || !digestPattern.test(input.expectedSnapshot) ||
+        typeof input.expectedFeatureDigest !== 'string' || !digestPattern.test(input.expectedFeatureDigest)) throw new WorkspaceError('Invalid proposal decision, reviewer, reason, or explicit baseline');
+      const metadata = this.featureProposalMeta(id);
+      if (metadata.status !== 'pending') throw new WorkspaceError('This proposal already has a recorded decision', 409);
+      const task = this.featureTaskMeta(metadata.taskId), bundle = this.featureTaskBundle(task.id), proposal = this.storedFeatureProposal(metadata);
+      const result = checkFeatureRevision(bundle, proposal, metadata.author, metadata.createdAt), now = new Date().toISOString();
+      const decided: ProposalMeta = { ...metadata, status: input.decision === 'apply' ? 'applied' : 'rejected',
+        decision: { decision: input.decision, actor: input.actor, actorKind: 'manual', reason: input.reason, at: now, batchId: proposal.batchId } };
+      let feature: WorkspaceFeature | undefined, next: Manifest = { ...this.manifest };
+      if (input.decision === 'apply') {
+        this.checkedFeatureBaseline(input.expectedSnapshot, input.expectedFeatureDigest);
+        if (task.basis.snapshot !== input.expectedSnapshot || task.featureDigest !== input.expectedFeatureDigest)
+          throw new WorkspaceError('This proposal belongs to an older baseline; keep it for review and prepare a current task', 409);
+        const document = result.document;
+        document.revision++;
+        document.history.push({ revision: document.revision, actor: input.actor, actorKind: 'manual', at: now, reason: input.reason,
+          operation: 'migration', subject: metadata.id,
+          before: { featureDigest: task.featureDigest, revision: bundle.features.revision },
+          after: { kind: 'feature-task-apply', taskId: task.id, proposalDigest: metadata.contentDigest, batchId: proposal.batchId, author: metadata.author, snapshot: task.basis.snapshot } });
+        const validated = featureApi.validate(document), digest = contentDigest(validated);
+        const previous = this.manifest.featureVersions.find(entry => entry.digest === digest);
+        feature = previous ?? { digest, basisSnapshot: validated.basis.snapshot, revision: validated.revision, savedAt: now };
+        this.immutable('features', digest, validated);
+        decided.decision!.featureDigest = digest;
+        next.featureHead = digest; next.featureVersions = previous ? next.featureVersions : [...next.featureVersions, feature];
+        if (!next.view.readOnly && (next.view.featureDigest === undefined || next.view.featureDigest === input.expectedFeatureDigest))
+          next.view = { ...next.view, featureDigest: digest };
+      }
+      const state = this.featureWorkState();
+      next.featureWork = { ...state, proposals: state.proposals.map(item => item.id === id ? decided : item) };
+      // Check after immutable writes AND the durable manifest temporary, immediately before the sole publication rename.
+      this.assertOpen(); this.commit(next, input.decision === 'apply'
+        ? () => { this.checkedFeatureBaseline(input.expectedSnapshot, input.expectedFeatureDigest); } : undefined);
+      return { proposal: structuredClone(decided), ...(feature ? { feature: { ...feature } } : {}) };
+    });
+  }
   getTask(id: string): WorkspaceTask {
     const task = this.manifest.tasks.find(task => task.id === id);
     if (!task) throw new WorkspaceError('Unknown task starting point', 404);
@@ -376,6 +580,7 @@ export class ContinuousWorkspace {
     return { ...entry };
   }
   async beginTask(title: string, expectedFeatureDigest: string | null): Promise<WorkspaceTask> {
+    if (this.stopped) throw new WorkspaceError('Workspace is closed', 409);
     if (this.establishing) throw new WorkspaceError('A task starting point is already being established', 409);
     if (typeof title !== 'string' || title.trim().length > 200) throw new WorkspaceError('Task title must be at most 200 characters');
     if (expectedFeatureDigest !== this.manifest.featureHead) throw new WorkspaceError('Annotations changed before the task started; refresh the saved version', 409);

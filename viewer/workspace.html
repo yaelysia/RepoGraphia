@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>RepoGraphia · 持续工作区</title>
   <link rel="stylesheet" href="/workspace.css">
+  <script src="/workspace-analysis.js" defer></script>
   <script src="/workspace.js" defer></script>
 </head>
 <body>
@@ -15,7 +16,7 @@
   </header>
   <div id="workspace-notice" class="notice" role="status" hidden></div>
   <section class="workspace-controls" aria-label="版本与开发任务">
-    <nav class="mode-tabs" aria-label="工作区视图"><button id="show-map" class="active" aria-pressed="true">地图工作台</button><button id="show-changes" aria-pressed="false">本轮变化 <span id="change-count"></span></button></nav>
+    <nav class="mode-tabs" aria-label="工作区视图"><button id="show-map" class="active" aria-pressed="true">地图工作台</button><button id="show-changes" aria-pressed="false">本轮变化 <span id="change-count"></span></button><button id="show-feature-work" aria-pressed="false">功能建设 <span id="feature-work-count"></span></button></nav>
     <div class="version-controls"><label for="viewed-version">正在审阅</label><select id="viewed-version" aria-label="正在审阅的代码版本" disabled></select><button id="open-latest" class="update-pill" hidden>查看新版本</button><span id="latest-version" class="visually-hidden"></span></div>
     <div class="save-controls"><span id="save-status" role="status">尚未载入标注</span><button id="retry-save" hidden>重试保存</button><button id="export-draft" hidden>导出草稿</button><button id="reload-saved" hidden>重载已保存内容</button></div>
   </section>
@@ -31,8 +32,19 @@
       <div id="comparison-note" class="comparison-note">这里展示任务期间观察到的代码变化。目标由人填写；变化不能证明修改者、执行进度或功能已经完成。</div>
       <div class="compare-layout"><aside class="changed-files-panel"><h3>变化文件 <span id="file-count"></span></h3><div id="changed-files" class="changed-files"></div></aside><section id="change-detail" class="change-detail"><div class="empty-state"><h3>先记录本轮开发的起点</h3><p>起点会包含当时已有的未提交修改。之后保存代码，即可查看这一轮新增的变化。</p></div></section></div>
     </section>
+    <section id="feature-work-view" class="feature-work-view" aria-label="功能建设" hidden>
+      <div class="feature-work-heading"><div><span class="eyebrow">BUILD UNDERSTANDING</span><h2>逐步看懂这个项目</h2><p>先建立主要功能，再按需要深入。任务交给你已有的 Codex，返回后再审阅。</p></div><div class="feature-work-actions"><button id="feature-work-import">导入分析结果</button><button id="feature-work-prepare" class="primary">准备分析任务</button></div></div>
+      <div id="feature-work-status" class="feature-work-status" role="status"></div>
+      <div id="feature-work-coverage" class="feature-work-coverage" aria-label="索引与探索范围"></div>
+      <details class="feature-work-scope"><summary>范围与未覆盖</summary><div id="feature-work-scope"></div></details>
+      <div class="feature-work-layout">
+        <aside class="feature-work-sidebar"><nav id="feature-work-categories" class="feature-work-categories" aria-label="功能建设分类"></nav><div id="feature-work-list" class="feature-work-list"></div></aside>
+        <section id="feature-work-detail" class="feature-work-detail" aria-label="分析任务与提案详情"><div class="empty-state"><span class="empty-orbit" aria-hidden="true"></span><h3>从主要功能开始</h3><p>建立一份有依据的功能粗图，再逐步补充还不清楚的部分。</p></div></section>
+      </div>
+    </section>
   </main>
   <footer class="workspace-footer"><span id="workspace-scope">已保存文件 · 当前选择的项目范围 · 本地观察</span><span id="workspace-location"></span></footer>
   <dialog id="task-dialog"><form id="task-form"><span class="eyebrow">START A DEVELOPMENT ROUND</span><h2>记录本轮开发的起点</h2><p>先核对当前已保存代码，再固定代码图和标注版本。已经存在的改动会纳入起点。</p><label for="task-title">这一轮准备做什么？</label><input id="task-title" name="title" maxlength="200" placeholder="例如：为报告增加 CSV 导出" autocomplete="off"><p id="task-dialog-status" role="status"></p><div class="dialog-actions"><button type="button" id="cancel-task">取消</button><button id="confirm-task" type="submit" class="primary">建立起点</button></div></form></dialog>
+  <dialog id="feature-import-dialog"><form id="feature-import-form"><span class="eyebrow">REVIEW AN EXTERNAL PROPOSAL</span><h2>导入分析结果</h2><p>导入只保存待审提案。当前地图、人工决定和编辑草稿会保留。</p><label for="feature-result-file">外部 Agent 返回的提案 JSON</label><input id="feature-result-file" type="file" accept="application/json,.json" required><label for="feature-result-author">来源名称（自述，未认证）</label><input id="feature-result-author" maxlength="200" value="Codex" required><p id="feature-import-status" role="status"></p><div class="dialog-actions"><button id="feature-import-cancel" type="button">取消</button><button id="feature-import-confirm" type="submit" class="primary">保存并查看提案</button></div></form></dialog>
 </body>
 </html>

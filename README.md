@@ -54,7 +54,9 @@ node dist/cli.js workspace "../Codex-Monitor" --out "../repographia-workspaces/c
 
 已应用的功能标注自动保存到工作区；表单里还没点击应用的文字仍需先应用。遇到保存冲突可保留并导出草稿。每个代码版本包含完整的已索引源码，分享工作区或导出报告也会分享这些代码。
 
-详细的版本、保存、初始标注和恢复规则见 [持续工作区使用说明](docs/continuous-workspace.md)。本版实现自动触发的完整重建；功能语义的局部增量修订属于后续阶段。
+在 **「功能建设」** 准备项目粗图、围绕某个功能深入或按变化续分析的固定任务包，交给现有 Codex/Agent，导入返回的修订，逐项比较后整批应用。功能可按实际需要继续深入；新代码和需要复核的旧依据分别可见。
+
+版本、保存与恢复见 [持续工作区使用说明](docs/continuous-workspace.md)；任务交接、当前引用状态与迟到提案处理见 [功能建设与增量修订](docs/feature-tasks.md)。底层代码图仍采用自动触发的完整重建。
 
 ### 离线报告：生成一份固定代码图
 
@@ -138,7 +140,13 @@ node dist/cli.js features render "./reports/codex-monitor-r1/graph.json" "./repo
 
 ## 4. 让 Agent 使用 Skill 生成功能提案
 
-### 最直接的方式：提供 Skill 路径
+### 持续工作区：使用固定任务包
+
+在「功能建设」生成并下载任务包，向 Codex 提供仓库内 Skill、CLI 和任务包的绝对路径。Skill **1.3** 会进入 `agent task overview/search/inspect/relation/check/submit` 流程。提交目录包含 `revision.json`、`review.json` 和 `receipt.json`；将 **`revision.json`** 导入工作区查看差异并决定是否应用。新增和改变的关联仍待审，不由 Agent 自行接受。
+
+完整可复制任务和命令见 [功能建设说明](docs/feature-tasks.md#2-把任务交给现有-codex)。若 Skill 以前复制到用户目录，需要同步整个新版目录（含 references），或直接让 Codex 读取当前仓库内的路径。
+
+### 离线追加流程：提供 Skill 路径
 
 不需要先配置 MCP。向能执行本地命令的 Agent 提供以下任务，**将路径替换为你的绝对路径**：
 
@@ -208,7 +216,9 @@ node dist/cli.js features render "./reports/codex-monitor-r1/graph.json" "./feat
 
 `check` 退出码：`0` 引用匹配，`2` 含失效证据，`1` 格式或操作错误。引用匹配不等于业务含义正确。`render` 可以显示失效标注，但不会偷偷跳转到新版本的同名函数。文件输出同样拒绝覆盖已有路径。
 
-代码改变后，保留旧图和旧标注，再生成或切换到新图。持续工作区会保留原功能内容和人工决定，并提示其依据版本；本版仍采用整份快照的引用失效规则，不会自动迁移。通过页面“跨快照迁移”导入旧图，逐条选择复用、重新指定或暂缓；也可先用 CLI 生成只读计划：
+代码改变后，保留旧图和旧标注，再生成或切换到新图。持续工作区保留原功能内容和人工决定，并额外显示当前引用“仍匹配／需要复核／无法定位／未能核对”；这是只读核对结果，不改写旧依据或自动接受新含义。需要修改功能或关联时，从「功能建设」准备修订任务。
+
+原离线评估和显式迁移仍采用严格快照规则。可通过页面“跨快照迁移”导入旧图，逐条选择复用、重新指定或暂缓；也可先用 CLI 生成只读计划：
 
 ```sh
 node dist/cli.js features plan "./reports/codex-monitor-r1/graph.json" "./reports/codex-monitor-r2/graph.json" "./features-reviewed.json" --out "./reports/migration-plan.json"
@@ -235,6 +245,8 @@ node dist/cli.js agent --help
 
 本版将配置继承、源码和模块解析环境纳入新的输入身份规则（`inputRevision: 1`），重新分析会产生与旧版不同的快照 ID，即使源码未改。原先配对的 `graph.json` 和 `features.json` 仍可直接阅读或重新渲染，不会被改写，也无需重跑 Agent。新工作区的 `--features` 只接纳与首次分析图准确配对的标注，旧版标注需先按显式迁移流程处理。工作区绑定本机项目和配置路径，不把快照 ID 当作不同目录之间可互换的版本号。
 
+M2 又在输入摘要中记录实际配置读取用途（`configReads`），因此从 M1 升级后首次重新分析也会产生新快照。已有工作区仍可重开，原任务、标注和历史图保留；缺少用途记录的旧图在跨版本引用核对中显示“未能核对”，不会把旧接受冒充当前依据。可从当前版本准备修订任务，或走已有显式迁移。
+
 ## 常见问题
 
 | 现象 | 处理 |
@@ -246,7 +258,7 @@ node dist/cli.js agent --help
 | 无法解析模块、图中有很多未知关系 | 检查目标依赖和所选 tsconfig；在“分析边界”看实际诊断，不把未知当作不存在 |
 | `SOURCE_REQUIRED` / 只有 excerpt | 用 `--include-source` 生成新图，然后从新快照开始探索 |
 | `STALE_BASE` / `SNAPSHOT_CONFLICT` / `REVISION_CONFLICT` | 核对图与标注，必要时显式迁移；不要手改哈希或版本来绕过校验 |
-| Agent 声称提交但没看到功能 | 查看新提交目录的 `index.html` 和有效 `receipt.json`，不是原报告；I/O 中断留下的目录不要当作成功 |
+| Agent 声称提交但没看到功能 | 工作区任务先导入输出目录的 `revision.json`，审阅后应用；原离线追加流程打开新目录的 `index.html`。两者都需有效 `receipt.json`，I/O 中断留下的目录不代表成功 |
 | 浏览器刷新后编辑消失 | 离线报告需导出 JSON；持续工作区需应用表单并等到“标注已保存”，未应用表单不会恢复 |
 | 工作区有新版本，地图没有自动切换 | 这是固定审阅版本的行为；完成或保存当前编辑后，点击“查看新代码版本” |
 | 重开后无法连接旧网址 | 使用本次启动输出的完整网址；每次启动都会生成新凭据，自动端口也可能变化 |
@@ -261,8 +273,8 @@ CI 使用锁定 TypeScript 5.9.3，运行 Linux/Windows 单元测试，以及真
 
 持续工作区目前观察已保存的 TS/JS 项目输入，以完整重建跟随变化，并比较固定代码版本。文件进入/离开索引可能来自源码或分析范围变化，不等同于磁盘上的新增/删除；候选、未知、诊断和预算限制仍保留。
 
-目前不支持编辑器未保存内容、内置模型 API、MCP 服务、Agent 执行进度、真正局部增量提取、功能图局部增量修订、全项目自动功能识别保证、完整跨语言/跨进程调用图或动态追踪。Git HEAD 只作辅助版本信息，不代表工作区无修改；实际依据以保存的快照和内容哈希为准。代码变化和接受功能映射都不等同于测试通过或功能完成。
+功能图支持局部引用核对和有范围约束的外部 Agent 修订；探索记录是 Agent 对固定文件版本的自述，不能当作完整理解率。目前不支持编辑器未保存内容、内置模型 API、MCP 服务、Agent 执行进度、真正局部增量提取、全项目自动功能识别保证、完整跨语言/跨进程调用图或动态追踪。Git HEAD 只作辅助版本信息，不代表工作区无修改；实际依据以保存的快照和内容哈希为准。代码变化和接受功能映射都不等同于测试通过或功能完成。
 
 工具不执行目标代码，没有远程遥测。离线报告不发起网络请求，持续工作区只与本机服务通信。它不是用于敌对仓库的操作系统沙箱；源码/标注中的文本不是可信指令，任意文件写权限也不会被 Skill 或提案协议限制成隔离环境。
 
-[持续工作区](docs/continuous-workspace.md) · [产品方向与下一阶段计划](docs/product-direction.md) · [架构](docs/architecture.md) · [项目地图](docs/project-map.md) · [功能标注](docs/feature-mapping.md) · [Agent CLI](docs/agent-cli.md) · [开发约定](AGENTS.md) · [当前接手检查点](docs/CHECKPOINT.md)
+[持续工作区](docs/continuous-workspace.md) · [功能建设](docs/feature-tasks.md) · [产品方向与下一阶段计划](docs/product-direction.md) · [架构](docs/architecture.md) · [项目地图](docs/project-map.md) · [功能标注](docs/feature-mapping.md) · [Agent CLI](docs/agent-cli.md) · [开发约定](AGENTS.md) · [当前接手检查点](docs/CHECKPOINT.md)

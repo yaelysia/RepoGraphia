@@ -12,6 +12,7 @@
   let instance = null, readOnly = false, dirty = false, draft = false, reportLoading = false, reportSequence = 0;
   let queuedSave = null, saving = null, saveTimer = null, saveFailure = null, savedAt = null;
   let taskId = null, comparison = null, diffSequence = 0, selectedFile = null, mode = 'map', polling = false, baselineBusy = false;
+  let featureWork = null, featureMutationBusy = false, viewContext = null, pendingNavigation = null;
 
   function notice(message, kind = 'info', source = 'action') {$('workspace-notice').textContent = message;$('workspace-notice').dataset.kind = kind;$('workspace-notice').dataset.source = source;$('workspace-notice').hidden = !message;}
   async function api(route, method = 'GET', body, plain = false) {
@@ -25,11 +26,11 @@
     }
     return plain ? response.text() : response.json();
   }
-  function send(type, data = {}) {if (instance) frame.contentWindow?.postMessage({channel, instance, type, ...data}, location.origin);}
+  function send(type, data = {}) {if (instance) frame.contentWindow?.postMessage({channel, instance, snapshot, type, ...data}, location.origin);}
   function saveState() {
     const label = $('save-status'), box = label.parentElement;
     box.dataset.state = saveFailure ? 'error' : saving || queuedSave ? 'saving' : 'saved';
-    label.textContent = readOnly ? '起点标注 · 只读' : saveFailure ? (saveFailure.status === 409 ? '保存冲突 · 草稿已保留' : '保存失败 · 草稿已保留') :
+    label.textContent = readOnly ? '历史标注 · 只读' : saveFailure ? (saveFailure.status === 409 ? '保存冲突 · 草稿已保留' : '保存失败 · 草稿已保留') :
       saving || queuedSave ? '正在保存标注…' : draft ? '有尚未应用的编辑' : dirty ? '标注尚未保存' : instance ? (savedAt ? `标注已保存 · ${time(savedAt)}` : '标注已载入') : '正在载入标注';
     $('retry-save').hidden = !saveFailure || saveFailure.status === 409;
     $('export-draft').hidden = !saveFailure;
@@ -47,7 +48,7 @@
     const basis = $('feature-basis-notice');basis.replaceChildren();
     basis.hidden = !featureBasis || featureBasis === snapshot;
     if (!basis.hidden) {
-      basis.append(make('span', `功能标注仍依据 ${short(featureBasis)}，当前代码为 ${short(snapshot)}。原内容与人工决定已保留，关联需要复核。`));
+      basis.append(make('span', `功能标注仍依据 ${short(featureBasis)}，当前代码为 ${short(snapshot)}。原内容与人工决定已保留，逐项引用核对见“功能建设”。`));
       if (state.snapshots.some(item => item.id === featureBasis)) basis.append(button('查看标注依据版本', () => loadReport(featureBasis, {featureDigest, readOnly})));
     }
   }
@@ -71,9 +72,9 @@
     $('workspace-location').textContent = state.workspace.root;
     $('workspace-scope').textContent = `已保存文件 · ${state.workspace.project || '默认项目范围'} · 本地观察`;
     $('refresh-workspace').disabled = state.status === 'closed';
-    $('start-task').disabled = !state.latestSnapshot || baselineBusy || state.status === 'closed';
-    $('export-report').disabled = !snapshot || reportLoading;
-    $('viewed-version').disabled = !state.snapshots.length || reportLoading;
+    $('start-task').disabled = !state.latestSnapshot || baselineBusy || featureMutationBusy || state.status === 'closed';
+    $('export-report').disabled = !snapshot || reportLoading || featureMutationBusy;
+    $('viewed-version').disabled = !state.snapshots.length || reportLoading || featureMutationBusy;
     setOptions($('viewed-version'), [...state.snapshots].reverse().map(item => [item.id, `${time(item.verifiedAt || item.createdAt)} · ${short(item.id)}`]), snapshot);
     if (!taskId || !state.tasks.some(item => item.id === taskId)) taskId = state.view?.taskId || state.activeTaskId || state.tasks.at(-1)?.id || null;
     setOptions($('task-select'), [...state.tasks].reverse().map(task => [task.id, task.title]), taskId, '尚未记录起点');
@@ -81,6 +82,7 @@
     if (state.error) notice('代码更新失败：' + state.error + '。上一份有效图仍可查看。', 'error', 'analysis');
     else if (['analysis','connection'].includes($('workspace-notice').dataset.source)) notice('');
     updateVersionNotice();
+    featureWork?.update();
   }
   async function persistView() {
     try {await api('/api/view', 'PUT', {snapshot, taskId, featureDigest, readOnly});} catch (error) {notice('阅读位置尚未保存：' + error.message, 'error');}
@@ -99,8 +101,9 @@
           if (pending.instance !== instance) return;
           featureDigest = result.feature.digest;featureBasis = result.feature.basisSnapshot;savedAt = result.feature.savedAt;
           if (state) state.feature = result.feature;
-          send('saved', {editId:pending.editId});
+          send('saved', {editId:pending.editId,featureDigest:result.feature.digest,revision:result.feature.revision});
           if (!queuedSave) dirty = false;
+          featureWork?.invalidate();
         } catch (error) {
           if (pending.instance !== instance) return;
           queuedSave ||= pending;saveFailure = error;dirty = true;
@@ -110,15 +113,28 @@
     })();
     try {await saving;} finally {saving = null;saveState();}
   }
-  async function readyToSwitch() {
-    if (draft) {notice('有尚未应用的编辑。请先在地图内应用修改或取消编辑，再切换版本。');return false;}
+  async function readyToSwitch(action = '切换版本') {
+    if (draft) {notice(`有尚未应用的编辑。请先在地图内应用修改或取消编辑，再${action}。`);return false;}
     clearTimeout(saveTimer);saveTimer = null;
     await savePending();if (saving) await saving;
     if (dirty || queuedSave || saveFailure) {notice('标注尚未保存。请先重试保存，或导出草稿后重载已保存内容。', 'error');return false;}
     return true;
   }
+  const featureContext = () => ({state,snapshot,featureDigest,readOnly,draft,dirty,loading:reportLoading});
+  async function guardFeatureAction(action, execute) {
+    if (featureMutationBusy || reportLoading) throw new Error('正在保存或切换版本，请稍后重试。');
+    featureMutationBusy = true;frame.inert = true;if (state) renderState(state);
+    try {
+      if (!await readyToSwitch(action)) throw new Error(`地图中仍有未保存或未应用的编辑。请先处理这些编辑，再${action}。`);
+      renderState(await api('/api/state'));
+      if (draft || dirty || queuedSave || saveFailure) throw new Error('核对期间出现了新的标注编辑，请先保存后重试。');
+      if (!snapshot || readOnly || snapshot !== state.latestSnapshot || featureDigest !== state.feature?.digest)
+        throw new Error('正在审阅的代码或标注不是当前版本。请明确切换到当前版本后重试，现有阅读内容和草稿仍保留。');
+      return await execute(featureContext());
+    } finally {featureMutationBusy = false;frame.inert = false;if (state) renderState(state);}
+  }
   async function loadReport(nextSnapshot, options = {}) {
-    if (!nextSnapshot || reportLoading) return false;
+    if (!nextSnapshot || reportLoading || featureMutationBusy) return false;
     if (!options.force && !await readyToSwitch()) return false;
     reportLoading = true;const request = ++reportSequence;frame.inert = true;
     if (state) renderState(state);
@@ -134,11 +150,13 @@
       nextFrame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-downloads allow-modals');
       snapshot = result.snapshot;featureDigest = result.featureDigest;featureBasis = null;readOnly = result.readOnly ?? !!options.readOnly;
       instance = null;dirty = false;draft = false;queuedSave = null;saveFailure = null;savedAt = null;
+      viewContext = null;pendingNavigation = options.navigation || null;
       frame.replaceWith(nextFrame);frame = nextFrame;frame.src = url.href;
       $('map-placeholder').hidden = true;notice('');saveState();
       setTimeout(() => {if (request === reportSequence && !instance) notice('地图脚本尚未就绪。请检查本地服务连接，或重新载入当前版本。', 'error');}, 10000);
       if (options.persist !== false) await persistView();
       if (mode === 'changes') void loadComparison();
+      featureWork?.invalidate();
       return true;
     } catch (error) {notice('无法载入代码图：' + error.message, 'error');return false;}
     finally {if (request === reportSequence) {reportLoading = false;frame.inert = false;if (state) renderState(state);}}
@@ -148,18 +166,27 @@
     if (event.source !== frame.contentWindow || event.origin !== location.origin || data?.channel !== channel || data.snapshot !== snapshot) return;
     if (data.type === 'ready') {
       if (data.featureDigest !== featureDigest || !!data.readOnly !== readOnly || typeof data.instance !== 'string') return;
-      instance = data.instance;featureBasis = data.basisSnapshot;saveState();return;
+      instance = data.instance;featureBasis = data.basisSnapshot;saveState();featureWork?.references();
+      if (pendingNavigation) {send('navigate',{...pendingNavigation,featureDigest});pendingNavigation = null;}
+      return;
     }
     if (data.instance !== instance || !instance) return;
     if (data.type === 'features' && !readOnly && Number.isSafeInteger(data.editId) && data.document) {
       dirty = true;queuedSave = {document:data.document,editId:data.editId,instance};
       if (!saveFailure) scheduleSave();else saveState();
     } else if (data.type === 'state') {dirty = !!data.dirty;draft = !!data.draft;saveState();}
+    else if (data.type === 'analysis-request' && ['overview','feature','changes'].includes(data.kind)) {
+      if (data.featureId !== undefined && typeof data.featureId !== 'string') return;
+      featureWork?.request({kind:data.kind,featureId:data.featureId,goal:typeof data.goal === 'string' ? data.goal.slice(0,2000) : undefined});
+    } else if (data.type === 'view-context' && data.featureDigest === featureDigest) {
+      viewContext = typeof data.featureId === 'string' ? {featureId:data.featureId} : null;
+    } else if (data.type === 'navigation-result' && !data.ok) notice(data.reason || '无法打开这个固定版本中的目标。');
   });
   function showMode(next) {
-    mode = next;$('map-view').hidden = next !== 'map';$('changes-view').hidden = next !== 'changes';
-    for (const [id, selected] of [['show-map', next === 'map'], ['show-changes', next === 'changes']]) {$(id).classList.toggle('active', selected);$(id).setAttribute('aria-pressed', String(selected));}
+    mode = next;$('map-view').hidden = next !== 'map';$('changes-view').hidden = next !== 'changes';$('feature-work-view').hidden = next !== 'feature-work';
+    for (const [id, selected] of [['show-map', next === 'map'], ['show-changes', next === 'changes'], ['show-feature-work',next === 'feature-work']]) {$(id).classList.toggle('active', selected);$(id).setAttribute('aria-pressed', String(selected));}
     if (next === 'changes') void loadComparison();
+    featureWork?.show(next === 'feature-work');
   }
   function renderComparison(result) {
     comparison = result;const task = state.tasks.find(item => item.id === taskId);
@@ -276,7 +303,27 @@
     } finally {polling = false;}
   }
   async function pollLoop() {await poll();setTimeout(pollLoop, document.hidden ? 6000 : 2000);}
-  $('show-map').onclick = () => showMode('map');$('show-changes').onclick = () => showMode('changes');
+  featureWork = createFeatureWorkView({api,context:featureContext,guardCurrent:guardFeatureAction,download,
+    openPanel:()=>showMode('feature-work'),openLatest:()=>loadReport(state?.latestSnapshot),
+    sendReferences:references=>{if (references?.snapshot === snapshot && references.featureDigest === featureDigest) send('reference-status',{references,featureDigest});},
+    navigate:async target=>{
+      if (!await readyToSwitch('查看代码或功能依据')) return;
+      const nextSnapshot = target.snapshot || snapshot,nextDigest = target.featureDigest || featureDigest;
+      if (nextSnapshot !== snapshot || nextDigest !== featureDigest) {
+        if (!state?.snapshots.some(item=>item.id === nextSnapshot)) {notice('所选依据版本不可用，当前内容仍保留。');return;}
+        if (!await loadReport(nextSnapshot,{featureDigest:nextDigest,readOnly:true,navigation:target})) return;
+      } else send('navigate',{...target,featureDigest});
+      showMode('map');
+    },
+    onApplied:async result=>{
+      const navigation = viewContext, appliedSnapshot = snapshot;
+      renderState(await api('/api/state'));
+      if (!result.feature?.digest) throw new Error('修订已提交，但返回的标注版本缺失。请重新载入已保存内容。');
+      await loadReport(appliedSnapshot,{featureDigest:result.feature.digest,navigation});
+      featureWork.invalidate();
+    }
+  });
+  $('show-map').onclick = () => showMode('map');$('show-changes').onclick = () => showMode('changes');$('show-feature-work').onclick = () => showMode('feature-work');
   $('viewed-version').onchange = async event => {const chosen = event.target.value;if (!await loadReport(chosen)) event.target.value = snapshot || '';};
   $('open-latest').onclick = () => loadReport(state?.latestSnapshot);
   $('task-select').onchange = async event => {taskId = event.target.value || null;await persistView();void loadComparison();};
@@ -317,7 +364,7 @@
     } catch (error) {$('task-dialog-status').textContent = '起点尚未建立：' + error.message;}
     finally {baselineBusy = false;for (const id of ['confirm-task','cancel-task','task-title']) $(id).disabled = false;if (state) renderState(state);}
   };
-  window.addEventListener('beforeunload', event => {if (dirty || draft || queuedSave || saving) {event.preventDefault();event.returnValue = '';}});
+  window.addEventListener('beforeunload', event => {if (dirty || draft || queuedSave || saving || featureWork?.hasDraft()) {event.preventDefault();event.returnValue = '';}});
   document.addEventListener('visibilitychange', () => {if (!document.hidden) void poll();});
   if (!token) {notice('请使用工作区启动命令输出的完整地址打开此页面。', 'error');$('analysis-status').textContent = '缺少连接凭据';document.body.dataset.analysis = 'error';}
   else void pollLoop();

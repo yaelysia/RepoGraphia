@@ -12,10 +12,22 @@ test('Skill has bounded routing metadata and complete relative references',()=>{
  assert.match(lf,header);assert.match(lf.replace(/\n/g,'\r\n'),header);
  assert.ok(!header.test(lf.replace('name: repographia-function-map','name: another-skill')));
  assert.ok(!header.test(lf.replace('description: ', 'wrong-field: ')));
- assert.match(skill,/version: "1.2"/);assert.ok(skill.split('\n').length<500);
+ assert.match(skill,/version: "1.3"/);assert.ok(skill.split('\n').length<500);
  for(const [,ref] of skill.matchAll(/\]\((references\/[^)]+)\)/g)) assert.ok(fs.existsSync(path.join(root,ref)));
- for(const required of ['claim table','counterexample','TRIAL.md','not independent','nextOffset','agent submit','parentId','FeatureMap schema 3'])
+ for(const required of ['claim table','counterexample','TRIAL.md','not independent','nextOffset','agent submit','parentId','FeatureMap schema 3',
+   'agent task overview','agent task check','agent task submit','exploredFiles','retractions','applied: false',
+   'separate, initially absent submission directory','must remain absent until submission'])
    assert.ok(skill.includes(required),required);
+});
+test('Skill separates task revisions from append proposals and explains human application and retained history',()=>{
+ const root='skills/repographia-function-map',skill=fs.readFileSync(path.join(root,'SKILL.md'),'utf8');
+ const reference=fs.readFileSync(path.join(root,'references/task-revisions.md'),'utf8');
+ assert.ok(skill.indexOf('agent task overview')<skill.indexOf('agent overview/search'));
+ for(const required of ['revisionProtocol','taskDigest','baseDigest','expectedRevision','support','limit','Retraction','TASK_CONFLICT',
+   'self-report','not proof of complete understanding','no replacement features.json','whole batch','original basis'])
+   assert.ok(reference.includes(required),required);
+ assert.match(reference,/at most 20 feature operations/);
+ assert.ok(fs.existsSync(path.join(root,'references/protocol.md')),'legacy append contract stays available');
 });
 test('frozen self-trial preserves original proposal and concrete revisions rather than self-approval',()=>{
  const dir='docs/trials/agent-notification',a=JSON.parse(fs.readFileSync(path.join(dir,'proposal-v1.json'))),b=JSON.parse(fs.readFileSync(path.join(dir,'proposal-v2.json')));
