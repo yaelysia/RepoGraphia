@@ -960,6 +960,73 @@ dialog input {
   gap:7px;
   margin:14px 0
 }
+.feature-proposal-feature-context {
+  border-left:3px solid #91aee0;
+  padding:2px 0 2px 16px;
+  margin:20px 0;
+  overflow-wrap:anywhere
+}
+.feature-proposal-feature-context h4 {
+  margin:0 0 9px;
+  font-size:17px;
+  line-height:1.5;
+  color:var(--text)
+}
+.feature-proposal-feature-summary {
+  color:var(--text);
+  font-size:14px;
+  line-height:1.75;
+  white-space:pre-wrap
+}
+.feature-proposal-feature-context .evidence-fold p {
+  font-size:13px;
+  line-height:1.75;
+  white-space:pre-wrap
+}
+.feature-proposal-checks {
+  border-top:1px solid var(--line);
+  padding-top:14px;
+  margin-top:20px;
+  overflow-wrap:anywhere
+}
+.feature-proposal-checks>h4 {
+  font-size:14px;
+  margin:0 0 8px;
+  color:var(--text)
+}
+.feature-proposal-check-kind h5 {
+  font-size:12px;
+  font-weight:550;
+  margin:18px 0 9px;
+  color:#abc7e5
+}
+.feature-proposal-check-kind[data-check-kind=limit] h5 {
+  color:#d8bf96
+}
+.feature-proposal-check {
+  margin:9px 0;
+  padding:12px 14px
+}
+.feature-proposal-check>p {
+  margin:0;
+  font-size:13px;
+  line-height:1.75;
+  white-space:pre-wrap
+}
+.feature-proposal-check blockquote {
+  margin:12px 0;
+  padding:10px 12px;
+  border-left:2px solid var(--line);
+  color:var(--text);
+  font:12px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere
+}
+.feature-proposal-feature-context .feature-work-meta,
+.feature-proposal-checks .feature-work-meta {
+  font-size:11px!important;
+  line-height:1.7
+}
 .feature-proposal-change {
   border:1px solid var(--line);
   background:#0f1a2c8a;

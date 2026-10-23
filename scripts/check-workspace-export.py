@@ -70,6 +70,10 @@ def feature_card(surface, identifier):
 def mapping_open(surface, identifier='entry'):
     surface.locator('#features-tab').click()
     surface.locator('#feature-breadcrumb').get_by_role('button', name='全部功能', exact=True).click()
+    # The overview retains its camera after paging or a scope visit. Locate the
+    # requested feature through the same global search available to readers.
+    surface.locator('#feature-search').fill('f-'+identifier)
+    surface.locator('.feature-search-result[data-feature="f-'+identifier+'"]').click()
     feature_card(surface, 'f-'+identifier).click()
     surface.locator('.feature-detail-actions').get_by_role('button', name='关联代码', exact=True).click()
     card = surface.locator('.feature-code-node[data-mapping="m-'+identifier+'"]')

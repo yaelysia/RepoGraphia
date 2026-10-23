@@ -10,6 +10,8 @@
 
 M1～M3 及导出修复已得到用户本轮测试通过的反馈；主分支 `0ef69d3dc9256dbfeea7a8bd625004a84c9525b5` 的 [Verify #63](https://github.com/yaelysia/RepoGraphia/actions/runs/39914395704) 为 `completed / success`。这是本次准备的实现基线。
 
+本文准备基线使用 Skill 1.3；当前 M4 已更新为 [Skill 1.4](../skills/repographia-function-map/SKILL.md)，增加本层问题、同层粒度和拆分理由的构造规则，继续沿用现有任务修订协议。以下执行适配设计与准备记录仍保留原基线语境。
+
 ## 2. 优先级与取舍
 
 | 内容 | 建议安排 | 原因与验收边界 |
@@ -121,6 +123,6 @@ CI 使用可控的执行替身验证契约与浏览器行为，不默认消耗�
 
 ## 9. 文档、Skill 与接手
 
-实现时一起更新 [功能建设](feature-tasks.md)、[持续工作区](continuous-workspace.md)、README 与架构说明。Skill 当前为 1.3，继续使用 task revision 路线；若新增宿主自动收件说明，更新 Skill 版本和 handoff 内容，保留 claim table、自评、支持/限制检查与手动交接路线。功能修订协议先保持版本 1；新增运行元数据独立版本化。
+实现时一起更新 [功能建设](feature-tasks.md)、[持续工作区](continuous-workspace.md)、README 与架构说明。准备基线的 Skill 为 1.3，继续使用 task revision 路线；当前版本见第 1 节注记。若新增宿主自动收件说明，更新 Skill 版本和 handoff 内容，保留 claim table、自评、支持/限制检查与手动交接路线。功能修订协议先保持版本 1；新增运行元数据独立版本化。
 
 准备阶段只完成基线核对、架构审计和本提案，详见 [CP45](checkpoints/CP45-m4-preparation.md)。后续实施先核对远端 master 与本计划分支/PR，避免从旧功能工作树恢复；本阶段没有新的 Agent 运行、用户数据处理或目标代码变更。

@@ -2,7 +2,7 @@
 name: repographia-function-map
 description: Build or revise reviewable, evidence-grounded feature maps from RepoGraphia workspace task bundles or fixed code snapshots. Use for a first capability overview, deeper exploration of a selected feature, revisiting features after code changes, or extending a partial map. Not for generic code edits, runtime debugging, approving proposals, or automatically migrating stale annotations.
 metadata:
-  version: "1.3"
+  version: "1.4"
 ---
 
 # RepoGraphia functional exploration
@@ -41,6 +41,8 @@ For large mixed search results, narrow to a production directory discovered in o
 
 Choose a coherent region with an observable capability: a user action, system trigger or external input that leads to a result. Begin with one to three capabilities, not a quota to fill. A utility, transport adapter or state helper is usually a supporting implementation, not automatically a separate user feature. Record unexamined regions without labelling them understood.
 
+When choosing or revising feature boundaries and hierarchy, read [Feature tree construction](references/construction.md). Write one **layer question** in `TRIAL.md`: what should a person understand from this overview or selected feature? Keep siblings at a comparable explanatory level, and record a concrete decomposition reason before adding children. For task revisions, put that reason in the existing operation `reason`; do not add new protocol fields or move unrelated branches to make a tidy tree.
+
 ## Explore implementation and a counterexample
 
 Use the selected route's `search` to obtain exact entity IDs; names alone are never submission identifiers. Use `inspect` for code, relations and memberships. Task arguments are `<task-bundle.json>`; append arguments are `<graph>` plus the same optional `--features` on every operation. Follow source `nextOffset` with `--source-offset`; follow relation/membership pagination with `--offset`. These are separate cursors. `nextOffset=null` on one page does not mean all other lists or all source were read.
@@ -75,6 +77,8 @@ For every feature in a feature or mapping operation, including each new parent a
 ## Critique before handoff
 
 Read [review rubric](references/review.md). Evaluate usefulness, decomposition, evidence, limits and review cost. Record specific deficiencies and corrections, not just a numeric score. Validation can check references and quotes, **not whether your interpretation is true**. A same-author trial is not independent evaluation, and deterministic replay is not another model run.
+
+Read the proposed names and summaries together at each changed level. Check that they answer its layer question, that each child adds a useful distinction, and that an important condition survives the concise wording. Empty child lists do not mean analysis is complete. Keep batch `unexplored` separate from per-feature `questions`; neither is a request to fabricate placeholder children. Support/limit checks belong to this frozen proposal, not a permanent proof field on the current feature.
 
 Run the selected route's `check`: `agent task check <bundle> <revision.json> --author <agent-name>` for a task, or `agent check <graph> <proposal.json> --author <agent-name>` for append. Correct the actual error, keeping the failed proposal and error result. After two unsuccessful fixes for the same claim, narrow or defer that claim rather than relaxing validation or guessing references.
 

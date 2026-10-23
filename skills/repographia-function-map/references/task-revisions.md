@@ -115,6 +115,8 @@ Use one operation per feature ID and one mapping/retraction operation per mappin
 
 The complete final hierarchy is checked before edits are previewed, so children may precede parents in the input. Cycles, missing parents, self-parenting, duplicate sibling titles and escape from a selected feature's subtree are rejected. Containment expresses authored decomposition only; it does not create execution order, dependencies, inherited mappings or inherited approval. Depth follows the data, within the batch/document budgets.
 
+Use a feature operation's existing `reason` to explain why a changed boundary or a new child helps answer the current layer's question. Keep the layer question and broader construction notes in `TRIAL.md`, not additional revision fields. The workspace groups changes and support/limit checks by `featureId` for reading; those checks remain evidence of this fixed proposal and are not promoted into permanent proof for the current feature. Batch-wide `unexplored` stays outside that grouping.
+
 For each feature in a feature or mapping operation, provide both a `support` and a `limit` check. Each check must reference a non-rejected, current mapping for that same feature and an exact source entity in permitted files. The quote must occur exactly once inside that entity. Parent checks do not cover children. The receiver captures file hash and range; do not supply them yourself. Retraction-only operations require a reason and do not require fabricated source checks.
 
 Retain candidate/unknown/external classifications and bounded-origin uncertainty when interpreting `relationIds`. The receiver checks relation relevance and exact anchors; it does not prove the business interpretation or confirm that any target code or tests ran.

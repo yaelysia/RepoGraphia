@@ -42,6 +42,8 @@ jobs:
       - run: node tests/helpers/feature-workbench.mjs reports/feature-workbench
       - run: python scripts/check-feature-workbench.py reports/feature-workbench
       - run: python scripts/check-workbench-shell.py reports/feature-workbench
+      - run: node tests/helpers/feature-tree-reading.mjs reports/feature-tree-reading
+      - run: python scripts/check-feature-tree-reading.py reports/feature-tree-reading
       - run: python scripts/check-workspace.py reports/workspace
       - run: python scripts/check-feature-tasks.py reports/feature-tasks
       - run: python scripts/check-workspace-export.py reports/workspace-export
@@ -53,6 +55,7 @@ jobs:
             reports/startup
             reports/feature-scene
             reports/feature-workbench
+            reports/feature-tree-reading
             reports/workspace
             reports/feature-tasks
             reports/workspace-export

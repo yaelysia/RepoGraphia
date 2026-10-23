@@ -111,12 +111,13 @@ with sync_playwright() as p:
     check('静态关系没有证明' in page.locator('#detail').inner_text(), 'deep feature retains its original question and limits')
     page.screenshot(path=str(root / 'workbench-deep.png'), full_page=True)
 
-    # Search locates the feature in its parent scope, rather than skipping its own node.
+    # Search reveals hidden ancestors in the current reading scope, retaining the target node.
     home();page.locator('#feature-search').fill('最终确认')
     result = page.locator('.feature-search-result[data-feature="final"]')
     expect(result).to_be_visible();result.click();settle()
-    check(card('final').get_attribute('aria-pressed') == 'true', 'global search selects a deep feature in its parent scope')
-    expect(page.locator('#feature-breadcrumb')).to_contain_text(chain[-2]['title'])
+    check(card('final').get_attribute('aria-pressed') == 'true', 'global search reveals and selects a deep feature')
+    check(page.locator('#feature-view').get_attribute('data-scope') == '',
+          'global search retains the overview scope while revealing required ancestors')
     check(page.locator('#detail').locator('h3').first.inner_text() == chain[-1]['title'], 'search exposes the complete long title')
 
     # Source and evidence return to the same explicit mapping and expanded support group.
@@ -136,7 +137,8 @@ with sync_playwright() as p:
     check(page.locator('.feature-code-node[data-mapping="level-final"]').get_attribute('aria-pressed') == 'true',
           'evidence return restores the selected mapping')
 
-    home();show_code('window')
+    home();page.locator('#feature-search').fill(chain[0]['title'])
+    page.locator('.feature-search-result[data-feature="window"]').click();settle();show_code('window')
     page.locator('.feature-group-expand[data-role="support"]').click()
     page.locator('#feature-show-calls').check()
     page.locator('#feature-map-mode [data-mode="features"]').click();enter('open');settle()
