@@ -1,5 +1,11 @@
 # RepoGraphia 当前检查点
 
+## CP41：M3 开发过程与结果审阅完成本地验收
+
+2026-10-23，`feat/development-review`。固定目标、功能级前后比较、范围外／未归属提示、独立人工审阅／外部核验自述、可靠保存和暗色左右开发审阅已接通。每条记录绑定实际前后代码与标注，新版本不继承旧结论，迟到响应和冲突保留草稿；源码／地图往返可保留同份比较的未保存记录。
+
+Linux / Node 22.18.0 / TypeScript 5.9.3 完整 **511 pass / 0 fail / 0 skip**；新 M3 真浏览器 **18 组**、原 M1 **14 组**、原 M2 **13 组**通过，异常与外网请求均为 0。先读 [CP41](checkpoints/CP41-development-review-validation.md) 与 [开发审阅](development-review.md)。最终远端 HEAD/tree、跨平台 CI 及合并状态以本轮 PR 为准；本地通过不等于已合入 master。M2 合并后 Verify #57 已成功。
+
 ## CP40：M2 跨平台通过并已合并，M3 开发审阅开始
 
 2026-10-23。M2 PR #13 的 Verify #56 全部通过：Linux 470 pass，Windows 467 pass / 3 项既有符号链接权限 skip，固定样本及两平台所有浏览器 gate 全绿。已合入 master `a89d60e5203e84b318e5033026c8402cdf588017`，merge tree 与受测 tree `7308d7ec319e1fc859b492ce1e2bca40a4954c82` 一致。

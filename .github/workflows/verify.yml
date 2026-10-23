@@ -27,6 +27,7 @@ jobs:
       - run: node --check viewer/workbench-shell-view.js
       - run: node --check viewer/workspace.js
       - run: node --check viewer/workspace-analysis.js
+      - run: node --check viewer/workspace-review.js
       - run: node --check viewer/workspace-bridge.js
       - run: node --check viewer/feature-migration-view.js
       - uses: actions/setup-python@v5
@@ -43,6 +44,7 @@ jobs:
       - run: python scripts/check-workbench-shell.py reports/feature-workbench
       - run: python scripts/check-workspace.py reports/workspace
       - run: python scripts/check-feature-tasks.py reports/feature-tasks
+      - run: python scripts/check-development-review.py reports/development-review
       - uses: actions/upload-artifact@v4
         with:
           name: report-startup-${{ runner.os }}
@@ -52,6 +54,7 @@ jobs:
             reports/feature-workbench
             reports/workspace
             reports/feature-tasks
+            reports/development-review
           retention-days: 7
           if-no-files-found: error
       - name: Archive the exact tested source (no credentials or working files)

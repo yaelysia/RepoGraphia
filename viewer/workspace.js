@@ -12,7 +12,8 @@
   let instance = null, readOnly = false, dirty = false, draft = false, reportLoading = false, reportSequence = 0;
   let queuedSave = null, saving = null, saveTimer = null, saveFailure = null, savedAt = null;
   let taskId = null, comparison = null, diffSequence = 0, selectedFile = null, mode = 'map', polling = false, baselineBusy = false;
-  let featureWork = null, featureMutationBusy = false, viewContext = null, pendingNavigation = null;
+  let featureWork = null, developmentReview = null, featureMutationBusy = false, viewContext = null, pendingNavigation = null;
+  let taskPreparationDigest = null, taskPreparationSequence = 0;
 
   function notice(message, kind = 'info', source = 'action') {$('workspace-notice').textContent = message;$('workspace-notice').dataset.kind = kind;$('workspace-notice').dataset.source = source;$('workspace-notice').hidden = !message;}
   async function api(route, method = 'GET', body, plain = false) {
@@ -83,6 +84,7 @@
     else if (['analysis','connection'].includes($('workspace-notice').dataset.source)) notice('');
     updateVersionNotice();
     featureWork?.update();
+    developmentReview?.update();
   }
   async function persistView() {
     try {await api('/api/view', 'PUT', {snapshot, taskId, featureDigest, readOnly});} catch (error) {notice('阅读位置尚未保存：' + error.message, 'error');}
@@ -104,6 +106,7 @@
           send('saved', {editId:pending.editId,featureDigest:result.feature.digest,revision:result.feature.revision});
           if (!queuedSave) dirty = false;
           featureWork?.invalidate();
+          developmentReview?.invalidate();
         } catch (error) {
           if (pending.instance !== instance) return;
           queuedSave ||= pending;saveFailure = error;dirty = true;
@@ -113,7 +116,8 @@
     })();
     try {await saving;} finally {saving = null;saveState();}
   }
-  async function readyToSwitch(action = '切换版本') {
+  async function readyToSwitch(action = '切换版本', options = {}) {
+    if (!options.allowReviewDraft && developmentReview?.hasDraft()) {notice(`有尚未保存的开发审阅记录。请先保存或取消对应草稿，再${action}。`);$('workspace-notice').append(button('查看未保存记录',()=>developmentReview.focusDraft()));return false;}
     if (draft) {notice(`有尚未应用的编辑。请先在地图内应用修改或取消编辑，再${action}。`);return false;}
     clearTimeout(saveTimer);saveTimer = null;
     await savePending();if (saving) await saving;
@@ -121,11 +125,11 @@
     return true;
   }
   const featureContext = () => ({state,snapshot,featureDigest,readOnly,draft,dirty,loading:reportLoading});
-  async function guardFeatureAction(action, execute) {
+  async function guardFeatureAction(action, execute, options = {}) {
     if (featureMutationBusy || reportLoading) throw new Error('正在保存或切换版本，请稍后重试。');
     featureMutationBusy = true;frame.inert = true;if (state) renderState(state);
     try {
-      if (!await readyToSwitch(action)) throw new Error(`地图中仍有未保存或未应用的编辑。请先处理这些编辑，再${action}。`);
+      if (!await readyToSwitch(action, options)) throw new Error(`仍有未保存或未应用的编辑。请先处理这些编辑，再${action}。`);
       renderState(await api('/api/state'));
       if (draft || dirty || queuedSave || saveFailure) throw new Error('核对期间出现了新的标注编辑，请先保存后重试。');
       if (!snapshot || readOnly || snapshot !== state.latestSnapshot || featureDigest !== state.feature?.digest)
@@ -135,7 +139,7 @@
   }
   async function loadReport(nextSnapshot, options = {}) {
     if (!nextSnapshot || reportLoading || featureMutationBusy) return false;
-    if (!options.force && !await readyToSwitch()) return false;
+    if (!options.force && !await readyToSwitch('切换版本',{allowReviewDraft:!!options.allowReviewDraft})) return false;
     reportLoading = true;const request = ++reportSequence;frame.inert = true;
     if (state) renderState(state);
     try {
@@ -157,6 +161,7 @@
       if (options.persist !== false) await persistView();
       if (mode === 'changes') void loadComparison();
       featureWork?.invalidate();
+      developmentReview?.invalidate();
       return true;
     } catch (error) {notice('无法载入代码图：' + error.message, 'error');return false;}
     finally {if (request === reportSequence) {reportLoading = false;frame.inert = false;if (state) renderState(state);}}
@@ -183,10 +188,11 @@
     } else if (data.type === 'navigation-result' && !data.ok) notice(data.reason || '无法打开这个固定版本中的目标。');
   });
   function showMode(next) {
-    mode = next;$('map-view').hidden = next !== 'map';$('changes-view').hidden = next !== 'changes';$('feature-work-view').hidden = next !== 'feature-work';
-    for (const [id, selected] of [['show-map', next === 'map'], ['show-changes', next === 'changes'], ['show-feature-work',next === 'feature-work']]) {$(id).classList.toggle('active', selected);$(id).setAttribute('aria-pressed', String(selected));}
+    mode = next;$('map-view').hidden = next !== 'map';$('changes-view').hidden = next !== 'changes';$('feature-work-view').hidden = next !== 'feature-work';$('development-review-view').hidden = next !== 'development-review';
+    for (const [id, selected] of [['show-map', next === 'map'], ['show-changes', next === 'changes'], ['show-feature-work',next === 'feature-work'], ['show-development-review',next === 'development-review']]) {$(id).classList.toggle('active', selected);$(id).setAttribute('aria-pressed', String(selected));}
     if (next === 'changes') void loadComparison();
     featureWork?.show(next === 'feature-work');
+    developmentReview?.show(next === 'development-review');
   }
   function renderComparison(result) {
     comparison = result;const task = state.tasks.find(item => item.id === taskId);
@@ -323,10 +329,34 @@
       featureWork.invalidate();
     }
   });
-  $('show-map').onclick = () => showMode('map');$('show-changes').onclick = () => showMode('changes');$('show-feature-work').onclick = () => showMode('feature-work');
+  developmentReview = createDevelopmentReviewView({api,context:()=>({...featureContext(),taskId}),download,
+    guardCurrent:(action,execute)=>guardFeatureAction(action,execute,{allowReviewDraft:true}),
+    openPanel:()=>showMode('development-review'),startTask:()=>$('start-task').click(),
+    selectTask:async id=>{taskId=id;renderState(state);await persistView();},
+    navigate:async target=>{
+      if (!await readyToSwitch('查看固定版本依据',{allowReviewDraft:true})) return;
+      const nextSnapshot=target.snapshot || snapshot,nextDigest=Object.hasOwn(target,'featureDigest')?target.featureDigest:featureDigest;
+      const {returnToReview,...navigation}=target;
+      if (!state?.snapshots.some(item=>item.id===nextSnapshot)) {notice('这份固定依据的代码版本不可用，当前内容仍保留。');return;}
+      if (nextSnapshot!==snapshot || nextDigest!==featureDigest) {
+        const historical=nextSnapshot!==state.latestSnapshot || nextDigest!==state.feature?.digest;
+        if (!await loadReport(nextSnapshot,{featureDigest:nextDigest,readOnly:historical,navigation,allowReviewDraft:true})) return;
+      } else if (target.featureId || target.nodeId) send('navigate',{...navigation,featureDigest});
+      showMode(returnToReview?'development-review':'map');
+    },
+    openCodeDiff:async target=>{
+      if (!await readyToSwitch('查看固定代码差异',{allowReviewDraft:true})) return;
+      if (target.snapshot!==snapshot || target.featureDigest!==featureDigest) {
+        if (!await loadReport(target.snapshot,{featureDigest:target.featureDigest,readOnly:target.snapshot!==state?.latestSnapshot || target.featureDigest!==state?.feature?.digest,allowReviewDraft:true})) return;
+      }
+      taskId=target.taskId;selectedFile=target.path || null;renderState(state);await persistView();showMode('changes');
+    }
+  });
+  $('show-map').onclick = () => showMode('map');$('show-changes').onclick = () => showMode('changes');$('show-feature-work').onclick = () => showMode('feature-work');$('show-development-review').onclick = () => showMode('development-review');
+  $('open-development-review').onclick = () => showMode('development-review');
   $('viewed-version').onchange = async event => {const chosen = event.target.value;if (!await loadReport(chosen)) event.target.value = snapshot || '';};
   $('open-latest').onclick = () => loadReport(state?.latestSnapshot);
-  $('task-select').onchange = async event => {taskId = event.target.value || null;await persistView();void loadComparison();};
+  $('task-select').onchange = async event => {if(developmentReview?.hasDraft()){event.target.value=taskId || '';notice('请先在“开发审阅”保存或取消未保存记录，再切换开发任务。');return;}taskId = event.target.value || null;developmentReview?.clearForTask();await persistView();void loadComparison();};
   $('open-task-start').onclick = async () => {const task = state?.tasks.find(item => item.id === taskId);if (task && await loadReport(task.snapshot, {featureDigest:task.featureDigest,readOnly:true})) showMode('map');};
   $('refresh-workspace').onclick = async () => {try {await api('/api/refresh', 'POST', {});notice('已请求核对已保存代码；完成后可切换到新版本。');void poll();} catch (error) {notice(error.message, 'error');}};
   $('retry-save').onclick = () => {saveFailure = null;void savePending();};
@@ -348,23 +378,44 @@
   };
   $('start-task').onclick = async () => {
     if (!await readyToSwitch()) return;
-    $('task-dialog-status').textContent = '';$('task-title').value = '';$('task-dialog').showModal();$('task-title').focus();
+    $('task-dialog-status').textContent = '';$('task-title').value = '';
+    $('task-intent-goal').value='';$('task-intent-checks').value='';$('task-intent-source').value='manual';$('task-intent-author').value='本地审阅者';$('task-intent-fields').open=false;
+    taskPreparationDigest=state.feature?.digest ?? null;const request=++taskPreparationSequence;
+    $('task-target-features').replaceChildren(make('p','正在读取已有功能…'));
+    $('task-dialog').showModal();$('task-title').focus();
+    try {
+      const result=await api('/api/feature-work?'+new URLSearchParams({snapshot:state.latestSnapshot,featureDigest:taskPreparationDigest ?? 'none'}));
+      if(request!==taskPreparationSequence || !$('task-dialog').open)return;
+      const box=$('task-target-features');box.replaceChildren();
+      for(const feature of result.features || []) {
+        const label=make('label'),input=make('input');input.type='checkbox';input.value=feature.id;input.name='targetFeature';
+        label.append(input,make('span',feature.title));box.append(label);
+      }
+      if(!result.features?.length)box.append(make('p','当前还没有功能记录。可以先填写目标和验收点，稍后继续建设功能图。'));
+    } catch(error) {if(request===taskPreparationSequence)$('task-target-features').replaceChildren(make('p','功能列表暂时不可用。可以先用目标和验收点记录这一轮。'));}
   };
   $('cancel-task').onclick = () => {if (!baselineBusy) $('task-dialog').close();};
   $('task-dialog').addEventListener('cancel', event => {if (baselineBusy) event.preventDefault();});
   $('task-form').onsubmit = async event => {
     event.preventDefault();if (baselineBusy) return;
-    baselineBusy = true;for (const id of ['confirm-task','cancel-task','task-title']) $(id).disabled = true;
+    const title=$('task-title').value.trim() || '开发任务 '+time(new Date().toISOString());
+    const goal=$('task-intent-goal').value.trim(),checks=$('task-intent-checks').value.split(/\r?\n/).map(text=>text.trim()).filter(Boolean),featureIds=[...$('task-target-features').querySelectorAll('input:checked')].map(input=>input.value);
+    const hasIntent=!!(goal || checks.length || featureIds.length);
+    const intent=hasIntent?{goal:goal || title,author:$('task-intent-author').value.trim() || '本地审阅者',source:$('task-intent-source').value,featureIds,checks:checks.map((text,index)=>({id:'criterion-'+(index+1),text}))}:undefined;
+    if(checks.length>50){$('task-dialog-status').textContent='验收点最多 50 项，请整理后重试。';return;}
+    if(checks.some(text=>text.length>2000)){$('task-dialog-status').textContent='单个验收点最多 2000 字，请精简后重试。';return;}
+    baselineBusy = true;for (const control of $('task-form').querySelectorAll('input,textarea,select,button')) control.disabled = true;
     $('task-dialog-status').textContent = '正在核对当前已保存代码并建立起点…';
     try {
-      const result = await api('/api/baseline', 'POST', {title:$('task-title').value.trim() || '开发任务 ' + time(new Date().toISOString()),expectedFeatureDigest:state.feature?.digest ?? null});
+      const result = await api('/api/baseline', 'POST', {title,expectedFeatureDigest:taskPreparationDigest,...(intent?{intent}:{})});
       renderState(await api('/api/state'));taskId = result.task.id;renderState(state);$('task-dialog').close();
+      developmentReview?.clearForTask();
       await loadReport(result.task.snapshot);showMode('changes');
       notice('本轮起点已保存。接下来在现有 Agent 中开发，保存代码后可查看变化。');
     } catch (error) {$('task-dialog-status').textContent = '起点尚未建立：' + error.message;}
-    finally {baselineBusy = false;for (const id of ['confirm-task','cancel-task','task-title']) $(id).disabled = false;if (state) renderState(state);}
+    finally {baselineBusy = false;for (const control of $('task-form').querySelectorAll('input,textarea,select,button')) control.disabled = false;if (state) renderState(state);}
   };
-  window.addEventListener('beforeunload', event => {if (dirty || draft || queuedSave || saving || featureWork?.hasDraft()) {event.preventDefault();event.returnValue = '';}});
+  window.addEventListener('beforeunload', event => {if (dirty || draft || queuedSave || saving || featureWork?.hasDraft() || developmentReview?.hasDraft()) {event.preventDefault();event.returnValue = '';}});
   document.addEventListener('visibilitychange', () => {if (!document.hidden) void poll();});
   if (!token) {notice('请使用工作区启动命令输出的完整地址打开此页面。', 'error');$('analysis-status').textContent = '缺少连接凭据';document.body.dataset.analysis = 'error';}
   else void pollLoop();
