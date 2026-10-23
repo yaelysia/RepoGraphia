@@ -1,5 +1,11 @@
 # RepoGraphia 当前检查点
 
+## CP40：M2 跨平台通过并已合并，M3 开发审阅开始
+
+2026-10-23。M2 PR #13 的 Verify #56 全部通过：Linux 470 pass，Windows 467 pass / 3 项既有符号链接权限 skip，固定样本及两平台所有浏览器 gate 全绿。已合入 master `a89d60e5203e84b318e5033026c8402cdf588017`，merge tree 与受测 tree `7308d7ec319e1fc859b492ce1e2bca40a4954c82` 一致。
+
+用户授权推进 M3，分支 `feat/development-review`：固定声明目标、功能级前后变化、未归属变化、独立的人工代码审阅与外部核验记录，以及暗色左右开发审阅界面。先读 [CP40](checkpoints/CP40-development-review-start.md) 和 [产品方向](product-direction.md)。M3 正在实施，后续验收与精确远端状态以新检查点/PR 为准；不要重做已完成的 M2。
+
 ## CP39：M2 合入修复基线后，完整本地验收通过
 
 2026-10-22，`feat/feature-incremental` 已包含 CP38 功能建设与 CP37 输入顺序修复。Linux / Node 22.18.0 / 锁定 TypeScript 5.9.3：完整 **470 pass / 0 fail / 0 skip**；M2 真服务浏览器 **13 组**、原工作区 **14 组**、离线换行/CSP **6 夹具**均符合预期，0 浏览器异常/外网请求。Skill 1.3 的任务修订实际试跑已完成，旧追加流程保留。
