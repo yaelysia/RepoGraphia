@@ -1,5 +1,12 @@
 # RepoGraphia 当前检查点
 
+## CP47：M4.1 布局原型与复用选择已确定
+
+2026-10-23，分支 `feat/functional-tree-reading`，基线为 M4 计划 PR #16 合并后的 `0b43f1a945fc6a72a00d675df04acf7ca73ad78b`。固定 Archify 右向几何已适配多根、实际深度和中文 DOM 尺寸，10 项直接检查通过。39 功能手写夹具的同尺寸比较支持“仅布局当前可见投影”，避免折叠后为隐藏子树留下大片空白。完整许可随离线 factory 保留，固定原文件和对照测试可追溯。
+
+先读 [CP47](checkpoints/CP47-function-tree-prototype.md) 与 [复用记录](archify-tree-reuse.md)。正式树导航、Skill 1.4 和按功能阅读提案正在同一实现分支集成；跨平台 CI 和最终实现状态以之后的检查点/PR 为准。不要重新开发已经保存的布局模块，不把原型夹具称为真实用户验收。
+
+
 ## CP46：功能树构造与阅读优先，执行适配后置
 
 2026-10-23，用户明确借鉴 Archify 的 UI 布局、功能树展开和内容组织，同时保留 RepoGraphia 的程序代码图与开发审阅。远端 master 仍为 `0ef69d3dc9256dbfeea7a8bd625004a84c9525b5`；准备分支 `docs/m4-preparation`／草案 [PR #16](https://github.com/yaelysia/RepoGraphia/pull/16) 仅调整文档。

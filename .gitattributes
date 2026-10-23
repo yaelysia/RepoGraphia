@@ -1,0 +1,3 @@
+# Fixed upstream reference bytes are checked by digest on Windows and Linux.
+third-party/archify/render-tree.upstream.mjs text eol=lf
+third-party/archify/LICENSE text eol=lf
