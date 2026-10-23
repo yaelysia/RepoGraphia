@@ -1,5 +1,13 @@
 # RepoGraphia 当前检查点
 
+## CP42：M3 CI 动效定位修复与本地试用教程
+
+2026-10-23，`feat/development-review`，PR #14。实现 HEAD `fb2d430bfff80e58243709e7eb4a2aa6047c8f72` 的 Verify #58：Windows 全部通过（508 pass / 3 项既有符号链接权限 skip），sample 通过；Linux 511 单元通过，但 M2 浏览器脚本把短暂的不可交互动效副本与当前节点一起匹配，strict-mode 失败，之后的 M3 浏览器 gate 未运行。
+
+已将测试定位限定为当前场景，新增真实导航产生副本、暂停其动效后仍点击当前节点的回归，先红后绿；保留产品动效。修复后的本地完整 **511 pass / 0 fail / 0 skip**，M2 浏览器 **14 组通过**，0 异常／外网。新增 [Windows 本地试用 M1 / M2 / M3](m123-local-trial.md)，按实际按钮串起任务包、外部 Codex、开发起点、保存代码、续分析、审阅与重开。
+
+详情见 [CP42](checkpoints/CP42-m3-ci-motion-recovery.md)。本地通过后发布新的精确 HEAD；修复后的跨平台 CI、合并提交和 master 验证以 [PR #14](https://github.com/yaelysia/RepoGraphia/pull/14) 为准。用户已授权修复后全绿即合并，不要用 #58 的部分成功代替新 HEAD 的完整门禁。
+
 ## CP41：M3 开发过程与结果审阅完成本地验收
 
 2026-10-23，`feat/development-review`。固定目标、功能级前后比较、范围外／未归属提示、独立人工审阅／外部核验自述、可靠保存和暗色左右开发审阅已接通。每条记录绑定实际前后代码与标注，新版本不继承旧结论，迟到响应和冲突保留草稿；源码／地图往返可保留同份比较的未保存记录。

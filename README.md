@@ -43,6 +43,8 @@ Windows 遇到“无法加载 npm.ps1”时，可以在同一终端把命令中�
 
 ### 持续工作区：开发时跟随已保存代码
 
+想把持续更新、功能建设和开发审阅连起来试一遍，先看 [Windows 本地试用 M1 / M2 / M3](docs/m123-local-trial.md)。
+
 ```sh
 node dist/cli.js workspace "../Codex-Monitor" --out "../repographia-workspaces/codex-monitor"
 ```
