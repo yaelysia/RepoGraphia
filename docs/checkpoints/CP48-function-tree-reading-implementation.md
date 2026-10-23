@@ -1,6 +1,6 @@
 # CP48 — M4 功能树阅读与构造衔接完成本地验收
 
-2026-10-23，分支 `feat/functional-tree-reading`。M4.1 远端提交为 `5757ec6570812591d951484a54d85e3a5b716d1e`，tree `61ad120c40c9b2f8aee96e6f4b63ee02557d1221`；M4 基线为 `0b43f1a945fc6a72a00d675df04acf7ca73ad78b`。本检查点保存正式阅读接入、Skill 1.4、按功能阅读提案及回归，最终实现 HEAD/tree 和 Windows/Linux CI 以本轮 PR 精确记录为准。
+2026-10-23，分支 `feat/functional-tree-reading`。M4.1 远端提交为 `5757ec6570812591d951484a54d85e3a5b716d1e`，tree `61ad120c40c9b2f8aee96e6f4b63ee02557d1221`；M4 基线为 `0b43f1a945fc6a72a00d675df04acf7ca73ad78b`。本检查点保存正式阅读接入、Skill 1.4、按功能阅读提案及回归，最终实现 HEAD/tree 和 Windows/Linux CI 以本轮 [PR #17](https://github.com/yaelysia/RepoGraphia/pull/17) 精确记录为准。后续入门文档同步提交只把 README 的旧“进入功能”说明对齐为展开、聚焦与搜索恢复，不改变运行时代码。
 
 ## 已交付行为
 
